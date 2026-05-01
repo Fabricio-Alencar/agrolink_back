@@ -47,8 +47,7 @@ def create_app():
             "http://127.0.0.1:5500",
             "http://127.0.0.1:5000",
             "http://127.0.0.1:8000",
-            "https://seu-frontend.vercel.app", # 👈 ADICIONE A URL DO SEU FRONTEND AQUI
-            "https://seu-site-agrolink.azurewebsites.net"
+            "https://back-agrolink-bmbkepbbdkabdhhd.eastus-01.azurewebsites.net", 
         ]
     )
 
