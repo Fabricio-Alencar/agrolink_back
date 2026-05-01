@@ -1,0 +1,54 @@
++-------------------+
+|     USUARIOS      |
++-------------------+
+| id (PK)           |
+| nome              |
+| email (UNIQUE)    |
+| telefone          |
+| localizacao       |
+| senha             |
+| tipo              |
++-------------------+
+        ▲
+        │
+        │ (1:N)
+        │
++-------------------+
+|     PRODUTOS      |
++-------------------+
+| id (PK)           |
+| nome              |
+| foto              |
+| categoria         |
+| preco             |
+| unidade           |
+| quantidade        |
+| descricao         |
+| status            |
+| produtor_id (FK)  |
++-------------------+
+        ▲
+        │
+        │ (1:N)
+        │
++-------------------+
+|   NEGOCIACOES     |
++-------------------+
+| id (PK)           |
+| produto_id (FK)   |
+| comprador_id (FK) |
+| vendedor_id (FK)  |
+| quantidade        |
+| data_entrega      |
+| descricao         |
+| status            |
+| data_criacao      |
++-------------------+
+        ▲       ▲
+        │       │
+   (1:N)│       │(1:N)
+        │       │
++-----------+  +-----------+
+| USUARIOS  |  | USUARIOS  |
+| comprador |  | vendedor  |
++-----------+  +-----------+
