@@ -79,6 +79,6 @@ app = create_app()
 def status():
     return {"status": "API está no ar 🚀"}
 
-if __name__ == "__main__":
+#if __name__ == "__main__":
     # debug=True reinicia o servidor automaticamente
-    app.run(debug=True)
+#    app.run(debug=True)
