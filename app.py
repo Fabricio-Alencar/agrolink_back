@@ -29,19 +29,28 @@ def create_app():
     # =========================
     app.config.from_object(Config)
 
+    # Configurações de Cookie para Cross-Origin (Sessão entre servidores)
+    # SESSION_COOKIE_SAMESITE='None' permite enviar cookies entre domínios diferentes
+    # SESSION_COOKIE_SECURE=True é obrigatório ao usar SameSite='None' (requer HTTPS)
+    app.config.update(
+        SESSION_COOKIE_SAMESITE='None',
+        SESSION_COOKIE_SECURE=True
+    )
+
     # =========================
     # CORS (permite requisições do frontend)
     # =========================
     CORS(
-    app,
-    supports_credentials=True,
-    origins=[
-        "http://127.0.0.1:5500",
-        "http://127.0.0.1:5000",
-        "http://127.0.0.1:8000",
-
-    ]
-)
+        app,
+        supports_credentials=True,
+        origins=[
+            "http://127.0.0.1:5500",
+            "http://127.0.0.1:5000",
+            "http://127.0.0.1:8000",
+            "https://seu-frontend.vercel.app", # 👈 ADICIONE A URL DO SEU FRONTEND AQUI
+            "https://seu-site-agrolink.azurewebsites.net"
+        ]
+    )
 
     # =========================
     # INICIALIZA BANCO DE DADOS
@@ -59,13 +68,12 @@ def create_app():
     # app.register_blueprint(perfil_bp)
 
     # =========================
-    # CRIA TABELAS NO BANC
+    # CRIA TABELAS NO BANCO
     # =========================
     with app.app_context():
         db.create_all()
 
     return app
-
 
 
 # =========================
