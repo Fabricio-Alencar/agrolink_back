@@ -1,18 +1,23 @@
 # Servidor de Produção
 gunicorn==23.0.0
 
-# Essenciais Flask
+# Flask
 Flask>=3.0.0
 flask-cors
 Flask-SQLAlchemy
+Flask-Migrate
 SQLAlchemy
 
-# Utilitários
-python-dotenv
-requests
+# PostgreSQL
 psycopg2-binary
 
-# Remova versões fixas dessas para o pip achar a melhor pré-compilada
+# Variáveis de ambiente
+python-dotenv
+
+# Utilitários
+requests
+
+# IA / processamento
 pydantic
 pydantic-settings
 pillow
