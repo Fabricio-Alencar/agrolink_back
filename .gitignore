@@ -1,0 +1,19 @@
+# Ambiente virtual
+venv/
+
+# Variáveis sensíveis
+.env
+
+# Cache Python
+__pycache__/
+*.pyc
+
+# SQLite
+instance/
+*.db
+
+# VS Code
+.vscode/
+
+# Sistema
+.DS_Store
