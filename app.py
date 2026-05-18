@@ -3,7 +3,7 @@ from flask_cors import CORS  # permite requisições do frontend
 from config import Config
 from models import db
 
-# =========================
+# ========================= oi
 # IMPORTAÇÃO DOS MODELS
 # (necessário para criar tabelas)
 # =========================
