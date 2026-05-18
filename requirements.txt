@@ -11,6 +11,9 @@ SQLAlchemy
 # PostgreSQL
 psycopg2-binary
 
+# Azure Blob Storage
+azure-storage-blob
+
 # Variáveis de ambiente
 python-dotenv
 
