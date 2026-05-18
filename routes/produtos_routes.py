@@ -1,7 +1,8 @@
-from flask import Blueprint, request, jsonify, session, url_for
+from flask import Blueprint, request, jsonify, session
 from services import produto_service
 
 produtos_bp = Blueprint('produtos', __name__)
+
 
 # =========================
 # MEUS PRODUTOS (LOGADO)
@@ -16,10 +17,10 @@ def meus_produtos():
     if not user_id:
         return jsonify({"erro": "Usuário não autenticado"}), 401
 
-    # 📦 busca produtos do usuário no service
+    # 📦 busca produtos do usuário
     produtos = produto_service.listar_produtos_produtor(user_id)
 
-    # 🔄 retorna em JSON formatado para o front
+    # 🔄 retorna JSON formatado
     return jsonify([
         {
             "id": p.id,
@@ -30,7 +31,9 @@ def meus_produtos():
             "categoria": p.categoria,
             "descricao": p.descricao,
             "status": p.status,
-            "foto": url_for('static', filename=p.foto) if p.foto else None
+
+            # 📸 URL pública Azure Blob Storage
+            "foto": p.foto
         }
         for p in produtos
     ]), 200
@@ -42,95 +45,146 @@ def meus_produtos():
 @produtos_bp.route('/produtos', methods=['POST'])
 def criar_produto():
 
-    # 1. CAPTURA DADOS DO FRONT (Ajustado para receber Multipart/FormData)
-    # request.form captura todos os textos do JS
+    # =========================
+    # 1. CAPTURA DADOS
+    # =========================
     data = request.form.to_dict()
-    
-    # request.files captura o arquivo físico da foto
+
+    # captura arquivo enviado
     arquivo_foto = request.files.get('foto')
 
-    # 2. VERIFICA USUÁRIO LOGADO
+    # =========================
+    # 2. VALIDA LOGIN
+    # =========================
     user_id = session.get("user_id")
 
     if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+        return jsonify({
+            "erro": "Usuário não autenticado"
+        }), 401
 
-    # 3. VINCULA PRODUTO AO USUÁRIO
+    # =========================
+    # 3. VINCULA AO PRODUTOR
+    # =========================
     data['produtor_id'] = user_id
 
     try:
 
-        # 4. CRIA NO SERVICE (Passando os textos e o arquivo da foto)
-        produto = produto_service.criar_produto(data, arquivo_foto)
+        # =========================
+        # 4. CRIA PRODUTO
+        # =========================
+        produto = produto_service.criar_produto(
+            data,
+            arquivo_foto
+        )
 
-        # 5. RESPOSTA PARA FRONT
+        # =========================
+        # 5. RESPOSTA
+        # =========================
         return jsonify({
             "msg": "Produto criado com sucesso",
+
             "produto": {
                 "id": produto.id,
                 "nome": produto.nome,
                 "preco": produto.preco,
-                "descricao": produto.descricao
+                "descricao": produto.descricao,
+                "foto": produto.foto
             }
+
         }), 201
 
     except Exception as e:
+
         return jsonify({
             "erro": str(e)
-        }), 400    
-    
+        }), 400
+
 
 # =========================
-# EXCLUIR PRODUTO (LOGADO)
+# EXCLUIR PRODUTO
 # =========================
-@produtos_bp.route('/produtos/<int:produto_id>', methods=['DELETE'])
+@produtos_bp.route(
+    '/produtos/<int:produto_id>',
+    methods=['DELETE']
+)
 def excluir_produto(produto_id):
-    # 1. VERIFICA USUÁRIO LOGADO
+
+    # 🔐 usuário logado
     user_id = session.get("user_id")
 
     if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+        return jsonify({
+            "erro": "Usuário não autenticado"
+        }), 401
 
     try:
-        # 2. CHAMA O SERVICE (Passando o ID do produto e do dono)
-        produto_service.deletar_produto(produto_id, user_id)
 
-        # 3. RESPOSTA DE SUCESSO
+        # remove produto
+        produto_service.deletar_produto(
+            produto_id,
+            user_id
+        )
+
         return jsonify({
             "msg": "Produto removido com sucesso",
             "id_excluido": produto_id
         }), 200
 
     except Exception as e:
-        # Caso o produto não exista ou não pertença ao usuário
+
         return jsonify({
             "erro": str(e)
         }), 403
-    
+
 
 # =========================
-# ATUALIZAR PRODUTO (LOGADO)
+# ATUALIZAR PRODUTO
 # =========================
-@produtos_bp.route('/produtos/<int:produto_id>', methods=['POST']) # Usando POST para facilitar o envio de Multipart
+@produtos_bp.route(
+    '/produtos/<int:produto_id>',
+    methods=['POST']
+)
 def atualizar_produto(produto_id):
-    # 1. VERIFICA USUÁRIO LOGADO
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
 
-    # 2. CAPTURA DADOS E FOTO
+    # 🔐 usuário logado
+    user_id = session.get("user_id")
+
+    if not user_id:
+        return jsonify({
+            "erro": "Usuário não autenticado"
+        }), 401
+
+    # captura dados
     data = request.form.to_dict()
+
+    # captura nova foto
     arquivo_foto = request.files.get('foto')
 
     try:
-        # 3. CHAMA O SERVICE
-        produto = produto_service.atualizar_produto(produto_id, user_id, data, arquivo_foto)
+
+        # atualiza produto
+        produto = produto_service.atualizar_produto(
+            produto_id,
+            user_id,
+            data,
+            arquivo_foto
+        )
 
         return jsonify({
+
             "msg": "Produto atualizado com sucesso",
-            "produto": {"id": produto.id, "nome": produto.nome}
+
+            "produto": {
+                "id": produto.id,
+                "nome": produto.nome,
+                "foto": produto.foto
+            }
+
         }), 200
 
     except Exception as e:
-        return jsonify({"erro": str(e)}), 400   
-    
+
+        return jsonify({
+            "erro": str(e)
+        }), 400
