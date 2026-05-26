@@ -202,7 +202,7 @@ def api_ceagesp():
 
     try:
         # Chama a função do Selenium dentro de services/ceagesp.py
-        dados = obter_cotacao_ceagesp(nome_produto, categoria_produto)
+        dados = obtener_cotacao_ceagesp(nome_produto, categoria_produto)
         return jsonify(dados)
     except Exception as e:
         print(f"Erro interno no Selenium: {e}")
