@@ -192,7 +192,7 @@ def atualizar_produto(produto_id):
 
 
 # Adicione a nova rota da CEAGESP:
-@produtos_bp.route('/cotacoes-ceagesp', methods=['GET'])
+@produtos_bp.route('/api/cotacoes-ceagesp', methods=['GET'])
 def api_ceagesp():
     nome_produto = request.args.get('produto')
     categoria_produto = request.args.get('categoria', 'frutas')
