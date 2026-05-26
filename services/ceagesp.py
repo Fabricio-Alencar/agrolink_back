@@ -24,7 +24,7 @@ def retroceder_para_dia_valido(data_atual):
     else:
         return data_atual - timedelta(days=1)
 
-def obter_cotacao_ceagesp(nome_produto, categoria_produto):
+def obtener_cotacao_ceagesp(nome_produto, categoria_produto):
     print(f"[{datetime.now().strftime('%H:%M:%S')}] Iniciando busca automatica para: {nome_produto} ({categoria_produto})")
    
     options = webdriver.ChromeOptions()
