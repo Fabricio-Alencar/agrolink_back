@@ -189,3 +189,21 @@ def atualizar_produto(produto_id):
         return jsonify({
             "erro": str(e)
         }), 400
+
+
+# Adicione a nova rota da CEAGESP:
+@produtos_bp.route('/api/cotacoes-ceagesp', methods=['GET'])
+def api_ceagesp():
+    nome_produto = request.args.get('produto')
+    categoria_produto = request.args.get('categoria', 'frutas')
+
+    if not nome_produto:
+        return jsonify({"erro": "O parâmetro 'produto' é obrigatório."}), 400
+
+    try:
+        # Chama a função do Selenium dentro de services/ceagesp.py
+        dados = obter_cotacao_ceagesp(nome_produto, categoria_produto)
+        return jsonify(dados)
+    except Exception as e:
+        print(f"Erro interno no Selenium: {e}")
+        return jsonify({"erro": "Não foi possível obter os dados da CEAGESP."}), 500
