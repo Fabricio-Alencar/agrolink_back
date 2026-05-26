@@ -158,12 +158,3 @@ def obter_cotacao_ceagesp(nome_produto, categoria_produto):
     return resultados
 
 
-if __name__ == "__main__":
-    print("--- INICIANDO TESTE DO SCRIPT 100% AUTOMATICO ---")
-    lista_precos = obter_cotacao_ceagesp(nome_produto="Morango", categoria_produto="FRUTAS")
-   
-    print("\n--- RESULTADO FINAL EXTRAIDO PELO ROBO ---")
-    if lista_precos:
-        print(json.dumps(lista_precos, indent=4, ensure_ascii=False))
-    else:
-        print("O robo nao encontrou nenhum resultado para esses parametros.")
