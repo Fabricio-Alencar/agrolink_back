@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, session
 from services import produto_service
+from services.ceagesp import obtener_cotacao_ceagesp
 
 produtos_bp = Blueprint('produtos', __name__)
 
