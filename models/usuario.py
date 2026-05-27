@@ -13,6 +13,7 @@ class Usuario(db.Model):
     senha = db.Column(db.String(200), nullable=False)  
     tipo = db.Column(db.String(20), nullable=False)  # 'produtor' ou 'estabelecimento' 
     avaliacao = db.Column(db.Float)  # média das avaliações recebidas
+    foto_perfil = db.Column(db.String(255), default='static/uploads/perfis/user.webp')
 
     # =========================
     # RELACIONAMENTOS
