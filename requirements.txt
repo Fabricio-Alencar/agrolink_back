@@ -25,3 +25,6 @@ pydantic
 pydantic-settings
 pillow
 numpy
+
+# Web scraping
+selenium
