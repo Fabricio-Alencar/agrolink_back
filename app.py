@@ -3,9 +3,8 @@ from flask_cors import CORS  # permite requisições do frontend
 from config import Config
 from models import db
 
-# ========================= oi
+# =========================
 # IMPORTAÇÃO DOS MODELS
-# (necessário para criar tabelas)
 # =========================
 from models.usuario import Usuario
 from models.produto import Produto
@@ -29,16 +28,16 @@ def create_app():
     # =========================
     app.config.from_object(Config)
 
-    # Configurações de Cookie para Cross-Origin (Sessão entre servidores)
-    # SESSION_COOKIE_SAMESITE='None' permite enviar cookies entre domínios diferentes
-    # SESSION_COOKIE_SECURE=True é obrigatório ao usar SameSite='None' (requer HTTPS)
+    # =========================
+    # CONFIGURAÇÕES DE COOKIE
+    # =========================
     app.config.update(
         SESSION_COOKIE_SAMESITE='None',
         SESSION_COOKIE_SECURE=True
     )
 
     # =========================
-    # CORS (permite requisições do frontend)
+    # CORS
     # =========================
     CORS(
         app,
@@ -48,13 +47,13 @@ def create_app():
             "http://127.0.0.1:8000",
             "https://front-agrolink-aff0bvbqd2buhfax.eastus-01.azurewebsites.net/",
             "https://front-agrolink-aff0bvbqd2buhfax.eastus-01.azurewebsites.net",
-            "https://back-agrolink-bmbkepbbdkabdhhd.eastus-01.azurewebsites.net", 
+            "https://back-agrolink-bmbkepbbdkabdhhd.eastus-01.azurewebsites.net",
             "https://agro-link.azurewebsites.net",
         ]
     )
 
     # =========================
-    # INICIALIZA BANCO DE DADOS
+    # INICIALIZA BANCO
     # =========================
     db.init_app(app)
 
@@ -68,10 +67,30 @@ def create_app():
     app.register_blueprint(perfil_bp)
 
     # =========================
-    # CRIA TABELAS NO BANCO
+    # CRIA TABELAS E AJUSTA BANCO
     # =========================
     with app.app_context():
+
+        # cria tabelas que não existem
         db.create_all()
+
+        # =========================
+        # GARANTE COLUNA foto_perfil
+        # =========================
+        from sqlalchemy import text
+
+        try:
+            db.session.execute(text("""
+                ALTER TABLE usuarios
+                ADD COLUMN IF NOT EXISTS foto_perfil VARCHAR(500)
+            """))
+
+            db.session.commit()
+
+            print("✅ Coluna foto_perfil verificada/criada com sucesso.")
+
+        except Exception as e:
+            print(f"❌ Erro ao criar coluna foto_perfil: {e}")
 
     return app
 
@@ -82,11 +101,16 @@ def create_app():
 app = create_app()
 
 
-#Endpoint de verificação
+# =========================
+# ENDPOINT DE TESTE
+# =========================
 @app.get("/")
 def status():
     return {"status": "API está no ar 🚀"}
 
-#if __name__ == "__main__":
-    # debug=True reinicia o servidor automaticamente
-#    app.run(debug=True)
+
+# =========================
+# EXECUÇÃO LOCAL
+# =========================
+# if __name__ == "__main__":
+#     app.run(debug=True)
