@@ -33,8 +33,11 @@ def login():
 
         return jsonify({
             "msg": "Login realizado",
-            "user_id": usuario.id,
-            "tipo": usuario.tipo
+            "user": {
+                "id": usuario.id,
+                "nome": usuario.nome,
+                "tipo": usuario.tipo
+            }
         })
 
     except Exception as e:
