@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, Form, UploadFile, File
 from fastapi.responses import JSONResponse
 
 from services import perfil_service
+from services.azure_storage_service import (
+    gerar_url_sas,
+    CONTAINER_USUARIOS
+)
 from auth.dependencies import get_current_user
 
 
@@ -20,14 +24,30 @@ def obter_perfil(usuario_logado=Depends(get_current_user)):
         # 2. CHAMA O SERVICE
         usuario = perfil_service.obter_perfil_usuario(user_id)
 
-        # 3. RETORNA DADOS FORMATADOS PARA O FRONT
+        # 3. PEGA A FOTO DO USUÁRIO
+        foto_perfil = getattr(
+            usuario,
+            "foto_perfil",
+            None
+        )
+
+        # 4. GERA URL SAS PARA FOTO ARMAZENADA NO AZURE
+        if foto_perfil and "user.webp" not in foto_perfil:
+            foto_perfil = gerar_url_sas(
+                CONTAINER_USUARIOS,
+                foto_perfil
+            )
+        else:
+            foto_perfil = None
+
+        # 5. RETORNA DADOS FORMATADOS PARA O FRONT
         return {
             "nome": usuario.nome,
             "email": usuario.email,
             "telefone": usuario.telefone,
             "cidade": usuario.cidade,
             "estado": usuario.estado,
-            "foto_perfil": getattr(usuario, "foto_perfil", "assets/user.webp"),
+            "foto_perfil": foto_perfil,
             "tipo": usuario.tipo
         }
 

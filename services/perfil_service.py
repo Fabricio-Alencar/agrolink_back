@@ -1,13 +1,14 @@
-import os
-import shutil
 from uuid import uuid4
+
 from werkzeug.security import generate_password_hash
 
 from database import SessionLocal
 from models.usuario import Usuario
 
-# Caminho da pasta onde as fotos de perfil serão salvas fisicamente
-UPLOAD_FOLDER_PERFIL = os.path.join('static', 'uploads', 'perfis')
+from services.azure_storage_service import (
+    upload_arquivo,
+    CONTAINER_USUARIOS
+)
 
 
 # =========================
@@ -46,39 +47,47 @@ def atualizar_perfil_usuario(user_id, data, arquivo_foto):
         usuario.email = data.get('email', usuario.email)
         usuario.telefone = data.get('telefone', usuario.telefone)
 
-        # Tratamento para Localização (cidade e estado)
-        # Como no HTML está um campo só ("Cidade, Estado"), você pode precisar dividir no JS antes de mandar, 
-        # ou separar aqui no Python caso o front envie a string inteira.
+        # Localização
         usuario.cidade = data.get('cidade', usuario.cidade)
         usuario.estado = data.get('estado', usuario.estado)
 
-        # 3. ATUALIZA SENHA (Se o usuário digitou uma nova diferente dos pontinhos do placeholder)
+        # 3. ATUALIZA SENHA
         nova_senha = data.get('senha')
 
-        if nova_senha and nova_senha.strip() != "" and nova_senha != "••••••••":
+        if (
+            nova_senha
+            and nova_senha.strip() != ""
+            and nova_senha != "••••••••"
+        ):
             usuario.senha = generate_password_hash(nova_senha)
 
-        # 4. PROCESSA NOVA FOTO DE PERFIL (SE ENVIADA)
+        # 4. PROCESSA NOVA FOTO DE PERFIL
         if arquivo_foto:
-            # a) Apaga a foto antiga do disco (se não for a imagem padrão user.webp)
-            if getattr(usuario, 'foto_perfil', None) and "user.webp" not in usuario.foto_perfil:
-                caminho_antigo = os.path.join('static', usuario.foto_perfil)
 
-                if os.path.exists(caminho_antigo):
-                    os.remove(caminho_antigo)
+            # Pega a extensão do arquivo
+            extensao = ""
 
-            # b) Salva a nova foto
-            os.makedirs(UPLOAD_FOLDER_PERFIL, exist_ok=True)
+            if (
+                arquivo_foto.filename
+                and "." in arquivo_foto.filename
+            ):
+                extensao = "." + arquivo_foto.filename.rsplit(
+                    ".",
+                    1
+                )[1].lower()
 
-            extensao = os.path.splitext(arquivo_foto.filename)[1]
-            nome_arquivo = f"{uuid4().hex}{extensao}"
+            # Gera nome único
+            nome_blob = f"{uuid4().hex}{extensao}"
 
-            caminho_completo = os.path.join(UPLOAD_FOLDER_PERFIL, nome_arquivo)
-            with open(caminho_completo, "wb") as arquivo:
-               shutil.copyfileobj(arquivo_foto.file, arquivo)
+            # Envia diretamente para o Azure Blob
+            upload_arquivo(
+                arquivo_foto.file,
+                nome_blob,
+                CONTAINER_USUARIOS
+            )
 
-            # c) Atualiza o caminho no objeto do banco
-            usuario.foto_perfil = f"uploads/perfis/{nome_arquivo}"
+            # Salva somente o nome do Blob no banco
+            usuario.foto_perfil = nome_blob
 
         # 5. SALVA NO BANCO
         try:
@@ -89,7 +98,10 @@ def atualizar_perfil_usuario(user_id, data, arquivo_foto):
 
         except Exception as e:
             db.rollback()
-            raise Exception(f"Erro ao atualizar perfil no banco de dados: {str(e)}")
+
+            raise Exception(
+                f"Erro ao atualizar perfil no banco de dados: {str(e)}"
+            )
 
     finally:
         db.close()
@@ -102,37 +114,40 @@ def excluir_conta_usuario(user_id):
     db = SessionLocal()
 
     try:
-        # 1. BUSCA O USUÁRIO NO BANCO
+        # 1. BUSCA O USUÁRIO
         usuario = db.get(Usuario, user_id)
 
         if not usuario:
             raise Exception("Usuário não encontrado.")
 
         try:
-            # 2. REMOVE A FOTO DE PERFIL FÍSICA (se não for a padrão)
-            if getattr(usuario, 'foto_perfil', None) and "user.webp" not in usuario.foto_perfil:
-                caminho_imagem = os.path.join('static', usuario.foto_perfil)
-
-                if os.path.exists(caminho_imagem):
-                    os.remove(caminho_imagem)
-
-            # Nota: Dependendo de como estão configuradas as suas Foreign Keys (cascade)
-            # deletar o usuário pode já deletar os produtos e negociações dele automaticamente.
-
-            # 3. EXCLUI O USUÁRIO
+            # 2. EXCLUI O USUÁRIO
+            #
+            # Por enquanto não removemos a imagem do Azure.
+            # Isso será feito depois com uma função específica
+            # para deletar o Blob.
             db.delete(usuario)
+
             db.commit()
 
-            print(f"✅ SUCESSO: Conta do usuário {user_id} excluída.")
+            print(
+                f"✅ SUCESSO: Conta do usuário {user_id} excluída."
+            )
 
             return True
 
         except Exception as e:
             db.rollback()
 
-            print("\n❌ [ERRO AO EXCLUIR CONTA]:", str(e))
+            print(
+                "\n❌ [ERRO AO EXCLUIR CONTA]:",
+                str(e)
+            )
 
-            raise Exception("Erro ao excluir conta no banco de dados. Verifique restrições de chave estrangeira.")
+            raise Exception(
+                "Erro ao excluir conta no banco de dados. "
+                "Verifique restrições de chave estrangeira."
+            )
 
     finally:
         db.close()

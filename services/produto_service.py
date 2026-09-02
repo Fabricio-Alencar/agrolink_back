@@ -1,5 +1,3 @@
-import os
-import shutil
 from uuid import uuid4
 
 from sqlalchemy import select
@@ -8,12 +6,14 @@ from database import SessionLocal
 from models.produto import Produto
 from models.usuario import Usuario
 
-# 📂 Caminho da pasta onde as fotos serão salvas fisicamente
-UPLOAD_FOLDER = os.path.join('static', 'uploads', 'produtos')
+from services.azure_storage_service import (
+    upload_arquivo,
+    CONTAINER_PRODUTOS
+)
 
 
 # =========================
-# BUSCA TODOS OS PRODUTOS DE UM PRODUTOR ESPECÍFICO 
+# BUSCA TODOS OS PRODUTOS DE UM PRODUTOR ESPECÍFICO
 # =========================
 def listar_produtos_produtor(user_id):
     db = SessionLocal()
@@ -45,27 +45,35 @@ def criar_produto(data, arquivo_foto):
         if usuario.tipo != 'produtor':
             raise Exception("Apenas produtores podem criar produtos")
 
-        # 2. PROCESSA A FOTO (se enviada) E GERA O CAMINHO PARA O BANCO
-        caminho_foto_banco = "uploads/produtos/foto_generica.png" # Foto padrão se não enviar nada
+        # 2. PROCESSA A FOTO
+        # Se nenhuma foto for enviada, usa a foto genérica.
+        nome_blob = None
 
         if arquivo_foto:
-            # Garante que a pasta física existe no servidor
-            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            # Pega a extensão da imagem
+            extensao = ""
 
-            # Pega a extensão da imagem (ex: .jpg, .png)
-            extensao = os.path.splitext(arquivo_foto.filename)[1]
+            if arquivo_foto.filename and "." in arquivo_foto.filename:
+                extensao = "." + arquivo_foto.filename.rsplit(
+                    ".", 1
+                )[1].lower()
 
-            # Gera um nome único aleatório para não sobrescrever arquivos
-            nome_arquivo = f"{uuid4().hex}{extensao}"
+            # Gera um nome único
+            nome_blob = f"{uuid4().hex}{extensao}"
 
-            # Salva o arquivo na pasta
-            caminho_completo = os.path.join(UPLOAD_FOLDER, nome_arquivo)
+            # Envia diretamente para o Azure Blob Storage
+            upload_arquivo(
+                arquivo_foto.file,
+                nome_blob,
+                CONTAINER_PRODUTOS
+            )
 
-            with open(caminho_completo, "wb") as arquivo:
-                shutil.copyfileobj(arquivo_foto.file, arquivo)
-
-            # Define a string que será guardada no banco de dados
-            caminho_foto_banco = f"uploads/produtos/{nome_arquivo}"
+        # Se não enviou imagem, mantém a foto genérica
+        caminho_foto_banco = (
+            nome_blob
+            if nome_blob
+            else "foto_generica.png"
+        )
 
         # 3. CRIA O PRODUTO NO BANCO DE DADOS
         try:
@@ -78,40 +86,35 @@ def criar_produto(data, arquivo_foto):
                 categoria=data.get('categoria'),
                 unidade=data.get('unidade'),
                 descricao=data.get('descricao'),
-                foto=caminho_foto_banco, # 📸 Salva o caminho gerado acima
+                foto=caminho_foto_banco
             )
 
             db.add(produto)
             db.commit()
             db.refresh(produto)
 
-            print(f"✅ SUCESSO: Produto {produto.id} cadastrado.")
+            print(
+                f"✅ SUCESSO: Produto {produto.id} cadastrado."
+            )
 
             return produto
 
         except Exception as e:
-            # Se algo der errado no banco, desfazemos qualquer alteração pendente
             db.rollback()
 
-            # 🧹 Limpeza: Apaga a foto caso o banco falhe, para não acumular lixo
-            if arquivo_foto and caminho_foto_banco != "uploads/produtos/foto_generica.png":
-                arquivo_lixo = os.path.join('static', caminho_foto_banco)
-
-                if os.path.exists(arquivo_lixo):
-                    os.remove(arquivo_lixo)
-
-            # Exibe o erro detalhado no terminal
             print("\n❌ [ERRO NO BANCO DE DADOS]:")
             print(f"Detalhes do erro: {str(e)}")
 
-            raise Exception(f"Erro ao salvar no banco: {str(e)}")
+            raise Exception(
+                f"Erro ao salvar no banco: {str(e)}"
+            )
 
     finally:
         db.close()
 
 
 # =========================
-# DELETAR PRODUTO 
+# DELETAR PRODUTO
 # =========================
 def deletar_produto(produto_id, user_id):
     db = SessionLocal()
@@ -130,27 +133,20 @@ def deletar_produto(produto_id, user_id):
         if not produto:
             raise Exception("Produto não encontrado")
 
-        # 🔥 Segurança: só o dono pode excluir
+        # Segurança: só o dono pode excluir
         if produto.produtor_id != user_id:
-            raise Exception("Você não tem permissão para excluir este produto")
+            raise Exception(
+                "Você não tem permissão para excluir este produto"
+            )
 
         try:
-            # 2. REMOVE DO BANCO (mas ainda não confirma, para garantir que a imagem só seja apagada se o banco aceitar)
+            # 2. REMOVE DO BANCO
             db.delete(produto)
 
-            # 3. REMOVE IMAGEM DO DISCO
-            if produto.foto and "foto_generica" not in produto.foto:
-                caminho_imagem = produto.foto
-
-                # Se vier só o caminho relativo, garante base correta
-                if not caminho_imagem.startswith("static"):
-                    caminho_imagem = os.path.join('static', caminho_imagem)
-
-                if os.path.exists(caminho_imagem):
-                    os.remove(caminho_imagem)
-                    print("Imagem removida com sucesso")
-                else:
-                    print("Imagem NÃO encontrada no disco")
+            # 3. POR ENQUANTO NÃO REMOVEMOS A IMAGEM DO AZURE
+            #
+            # A exclusão do Blob Storage será implementada
+            # no próximo passo.
 
             # 4. CONFIRMA A EXCLUSÃO NO BANCO
             db.commit()
@@ -161,8 +157,12 @@ def deletar_produto(produto_id, user_id):
 
         except Exception as e:
             db.rollback()
+
             print("Erro ao deletar:", str(e))
-            raise Exception("Erro ao excluir no banco de dados")
+
+            raise Exception(
+                "Erro ao excluir no banco de dados"
+            )
 
     finally:
         db.close()
@@ -171,7 +171,12 @@ def deletar_produto(produto_id, user_id):
 # =========================
 # ATUALIZAR PRODUTO
 # =========================
-def atualizar_produto(produto_id, user_id, data, arquivo_foto):
+def atualizar_produto(
+    produto_id,
+    user_id,
+    data,
+    arquivo_foto
+):
     db = SessionLocal()
 
     try:
@@ -182,39 +187,69 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
             raise Exception("Produto não encontrado")
 
         if produto.produtor_id != user_id:
-            raise Exception("Você não tem permissão para editar este produto")
+            raise Exception(
+                "Você não tem permissão para editar este produto"
+            )
 
         # 2. ATUALIZA CAMPOS DE TEXTO
-        produto.nome = data.get('nome', produto.nome)
-        produto.preco = data.get('preco', produto.preco)
-        produto.quantidade = data.get('quantidade', produto.quantidade)
-        produto.unidade = data.get('unidade', produto.unidade)
-        produto.categoria = data.get('categoria', produto.categoria)
-        produto.descricao = data.get('descricao', produto.descricao)
-        produto.status = data.get('status', produto.status)
+        produto.nome = data.get(
+            'nome',
+            produto.nome
+        )
 
-        # 3. PROCESSA NOVA FOTO (SE HOUVER)
+        produto.preco = data.get(
+            'preco',
+            produto.preco
+        )
+
+        produto.quantidade = data.get(
+            'quantidade',
+            produto.quantidade
+        )
+
+        produto.unidade = data.get(
+            'unidade',
+            produto.unidade
+        )
+
+        produto.categoria = data.get(
+            'categoria',
+            produto.categoria
+        )
+
+        produto.descricao = data.get(
+            'descricao',
+            produto.descricao
+        )
+
+        produto.status = data.get(
+            'status',
+            produto.status
+        )
+
+        # 3. PROCESSA NOVA FOTO
         if arquivo_foto:
-            # a) Apagar a foto antiga do disco (se não for a genérica)
-            if produto.foto and "foto_generica.png" not in produto.foto:
-                caminho_antigo = os.path.join('static', produto.foto)
 
-                if os.path.exists(caminho_antigo):
-                    os.remove(caminho_antigo)
+            # Pega a extensão da imagem
+            extensao = ""
 
-            # b) Salvar a nova foto
-            os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+            if arquivo_foto.filename and "." in arquivo_foto.filename:
+                extensao = "." + arquivo_foto.filename.rsplit(
+                    ".", 1
+                )[1].lower()
 
-            extensao = os.path.splitext(arquivo_foto.filename)[1]
-            nome_arquivo = f"{uuid4().hex}{extensao}"
+            # Gera nome único
+            nome_blob = f"{uuid4().hex}{extensao}"
 
-            caminho_completo = os.path.join(UPLOAD_FOLDER, nome_arquivo)
+            # Envia nova imagem para o Azure
+            upload_arquivo(
+                arquivo_foto.file,
+                nome_blob,
+                CONTAINER_PRODUTOS
+            )
 
-            with open(caminho_completo, "wb") as arquivo:
-                shutil.copyfileobj(arquivo_foto.file, arquivo)
-
-            # c) Atualiza o caminho no objeto produto
-            produto.foto = f"uploads/produtos/{nome_arquivo}"
+            # Atualiza o nome do Blob no banco
+            produto.foto = nome_blob
 
         # 4. SALVA NO BANCO
         try:
@@ -225,7 +260,10 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
 
         except Exception as e:
             db.rollback()
-            raise Exception(f"Erro ao atualizar banco: {str(e)}")
+
+            raise Exception(
+                f"Erro ao atualizar banco: {str(e)}"
+            )
 
     finally:
         db.close()
