@@ -87,9 +87,9 @@ def deletar_arquivo(nome_blob, container_nome):
     if blob_client.exists():
         blob_client.delete_blob()
         print(
-            f"🗑️ Blob removido: {container_nome}/{nome_blob}"
+            f"Blob removido: {container_nome}/{nome_blob}"
         )
     else:
         print(
-            f"⚠️ Blob não encontrado: {container_nome}/{nome_blob}"
+            f"Blob não encontrado: {container_nome}/{nome_blob}"
         )    
