@@ -1,6 +1,10 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from services import negociacoes_service
+from services.azure_storage_service import (
+    gerar_url_sas,
+    CONTAINER_PRODUTOS
+)
 from auth.dependencies import get_current_user
 
 
@@ -36,21 +40,57 @@ def listar_negociacoes(
             item = {
                 "id": p.id,
                 "quantidade": p.quantidade,
-                "data_entrega": p.data_entrega.isoformat() if p.data_entrega else None,
+                "data_entrega": (
+                    p.data_entrega.isoformat()
+                    if p.data_entrega
+                    else None
+                ),
                 "descricao": p.descricao,
                 "status": p.status,
 
                 "produto_nome": p.produto.nome,
                 "produto_descricao": p.produto.descricao,
                 "produto_unidade": p.produto.unidade,
-                "produto_foto": p.produto.foto,
+
+                "produto_foto": (
+                    gerar_url_sas(
+                        CONTAINER_PRODUTOS,
+                        p.produto.foto
+                    )
+                    if p.produto.foto
+                    and p.produto.foto != "foto_generica.png"
+                    and "uploads/produtos/foto_generica.png"
+                    not in p.produto.foto
+                    else None
+                ),
+
                 "produto_preco": p.produto.preco,
 
-                "negociante_nome": parceiro.nome if parceiro else "N/A",
-                "negociante_estado": parceiro.estado if parceiro else "N/A",
-                "negociante_cidade": parceiro.cidade if parceiro else "N/A",
-                "negociante_telefone": parceiro.telefone if parceiro else "N/A",
-                "negociante_email": parceiro.email if parceiro else "N/A",
+                "negociante_nome": (
+                    parceiro.nome
+                    if parceiro
+                    else "N/A"
+                ),
+                "negociante_estado": (
+                    parceiro.estado
+                    if parceiro
+                    else "N/A"
+                ),
+                "negociante_cidade": (
+                    parceiro.cidade
+                    if parceiro
+                    else "N/A"
+                ),
+                "negociante_telefone": (
+                    parceiro.telefone
+                    if parceiro
+                    else "N/A"
+                ),
+                "negociante_email": (
+                    parceiro.email
+                    if parceiro
+                    else "N/A"
+                ),
             }
 
             lista_final.append(item)
@@ -88,9 +128,11 @@ def alterar_status(
             }
         )
 
-    resultado, codigo_http = negociacoes_service.atualizar_status_negociacao(
-        id,
-        novo_status
+    resultado, codigo_http = (
+        negociacoes_service.atualizar_status_negociacao(
+            id,
+            novo_status
+        )
     )
 
     if codigo_http >= 400:
@@ -127,9 +169,11 @@ def confirmar_acao(
             }
         )
 
-    resultado, codigo_http = negociacoes_service.registrar_confirmacao_service(
-        id,
-        acao
+    resultado, codigo_http = (
+        negociacoes_service.registrar_confirmacao_service(
+            id,
+            acao
+        )
     )
 
     if codigo_http >= 400:
@@ -157,9 +201,11 @@ def deletar_negociacao(
 
     user_id = usuario_logado["user_id"]
 
-    resultado, codigo_http = negociacoes_service.deletar_negociacao_service(
-        id,
-        user_id
+    resultado, codigo_http = (
+        negociacoes_service.deletar_negociacao_service(
+            id,
+            user_id
+        )
     )
 
     if codigo_http >= 400:
