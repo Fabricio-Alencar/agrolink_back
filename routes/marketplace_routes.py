@@ -2,6 +2,10 @@ from fastapi import APIRouter, Depends, status
 from fastapi.responses import JSONResponse
 
 from services import marketplace_service
+from services.azure_storage_service import (
+    gerar_url_sas,
+    CONTAINER_PRODUTOS
+)
 from auth.dependencies import get_current_user
 
 
@@ -26,7 +30,18 @@ def produtos(usuario_logado=Depends(get_current_user)):
                 "unidade": p.unidade,
                 "categoria": p.categoria,
                 "descricao": p.descricao,
-                "foto": p.foto,
+
+                "foto": (
+                    gerar_url_sas(
+                        CONTAINER_PRODUTOS,
+                        p.foto
+                    )
+                    if p.foto
+                    and p.foto != "foto_generica.png"
+                    and "uploads/produtos/foto_generica.png" not in p.foto
+                    else None
+                ),
+
                 "status": p.status,
                 "produtor_nome": p.produtor.nome,
                 "produtor_estado": p.produtor.estado,
