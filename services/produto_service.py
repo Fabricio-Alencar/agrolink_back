@@ -1,81 +1,49 @@
 from uuid import uuid4
-
 from sqlalchemy import select
-
 from database import SessionLocal
 from models.produto import Produto
 from models.usuario import Usuario
-
 from services.azure_storage_service import (
     upload_arquivo,
+    deletar_arquivo,
     CONTAINER_PRODUTOS
 )
 
-
-# =========================
-# BUSCA TODOS OS PRODUTOS DE UM PRODUTOR ESPECÍFICO
-# =========================
 def listar_produtos_produtor(user_id):
     db = SessionLocal()
-
     try:
         resultado = db.execute(
             select(Produto).where(Produto.produtor_id == user_id)
         )
-
         return resultado.scalars().all()
-
     finally:
         db.close()
 
-
-# =========================
-# CRIAR PRODUTO - RECEBE DADOS + ARQUIVO DE FOTO
-# =========================
 def criar_produto(data, arquivo_foto):
     db = SessionLocal()
-
     try:
-        # 1. VERIFICA SE O PRODUTOR EXISTE E É DO TIPO CORRETO
         usuario = db.get(Usuario, data['produtor_id'])
-
         if not usuario:
             raise Exception("Usuário não encontrado")
-
         if usuario.tipo != 'produtor':
             raise Exception("Apenas produtores podem criar produtos")
 
-        # 2. PROCESSA A FOTO
-        # Se nenhuma foto for enviada, usa a foto genérica.
         nome_blob = None
-
         if arquivo_foto:
-            # Pega a extensão da imagem
             extensao = ""
-
             if arquivo_foto.filename and "." in arquivo_foto.filename:
-                extensao = "." + arquivo_foto.filename.rsplit(
-                    ".", 1
-                )[1].lower()
+                extensao = "." + arquivo_foto.filename.rsplit(".", 1)[1].lower()
 
-            # Gera um nome único
             nome_blob = f"{uuid4().hex}{extensao}"
 
-            # Envia diretamente para o Azure Blob Storage
             upload_arquivo(
                 arquivo_foto.file,
                 nome_blob,
                 CONTAINER_PRODUTOS
             )
 
-        # Se não enviou imagem, mantém a foto genérica
-        caminho_foto_banco = (
-            nome_blob
-            if nome_blob
-            else "foto_generica.png"
-        )
+        caminho_foto_banco = nome_blob if nome_blob else "foto_generica.png"
 
-        # 3. CRIA O PRODUTO NO BANCO DE DADOS
         try:
             produto = Produto(
                 nome=data.get('nome'),
@@ -88,41 +56,34 @@ def criar_produto(data, arquivo_foto):
                 descricao=data.get('descricao'),
                 foto=caminho_foto_banco
             )
-
             db.add(produto)
             db.commit()
             db.refresh(produto)
-
-            print(
-                f"✅ SUCESSO: Produto {produto.id} cadastrado."
-            )
-
+            print(f"✅ SUCESSO: Produto {produto.id} cadastrado.")
             return produto
-
         except Exception as e:
             db.rollback()
-
             print("\n❌ [ERRO NO BANCO DE DADOS]:")
             print(f"Detalhes do erro: {str(e)}")
-
-            raise Exception(
-                f"Erro ao salvar no banco: {str(e)}"
-            )
-
+            if nome_blob:
+                try:
+                    deletar_arquivo(
+                        nome_blob,
+                        CONTAINER_PRODUTOS
+                    )
+                except Exception as erro_blob:
+                    print(
+                        "⚠️ Não foi possível remover o Blob após erro no banco:",
+                        str(erro_blob)
+                    )
+            raise Exception(f"Erro ao salvar no banco: {str(e)}")
     finally:
         db.close()
 
-
-# =========================
-# DELETAR PRODUTO
-# =========================
 def deletar_produto(produto_id, user_id):
     db = SessionLocal()
-
     try:
-        # 1. BUSCA O PRODUTO NO BANCO
         produto = db.get(Produto, produto_id)
-
         if produto:
             print("Produto encontrado:", produto.nome)
             print("ID do dono do produto:", produto.produtor_id)
@@ -133,137 +94,106 @@ def deletar_produto(produto_id, user_id):
         if not produto:
             raise Exception("Produto não encontrado")
 
-        # Segurança: só o dono pode excluir
         if produto.produtor_id != user_id:
-            raise Exception(
-                "Você não tem permissão para excluir este produto"
-            )
+            raise Exception("Você não tem permissão para excluir este produto")
+
+        foto_produto = produto.foto
+
+        if (
+            foto_produto
+            and foto_produto != "foto_generica.png"
+            and not foto_produto.startswith("http://")
+            and not foto_produto.startswith("https://")
+        ):
+            try:
+                deletar_arquivo(
+                    foto_produto,
+                    CONTAINER_PRODUTOS
+                )
+                print(f"🗑️ Foto do produto {produto_id} removida do Azure.")
+            except Exception as e:
+                print("⚠️ Não foi possível excluir a foto do produto:", str(e))
 
         try:
-            # 2. REMOVE DO BANCO
             db.delete(produto)
-
-            # 3. POR ENQUANTO NÃO REMOVEMOS A IMAGEM DO AZURE
-            #
-            # A exclusão do Blob Storage será implementada
-            # no próximo passo.
-
-            # 4. CONFIRMA A EXCLUSÃO NO BANCO
             db.commit()
-
-            print("Produto deletado com sucesso")
-
+            print(f"✅ SUCESSO: Produto {produto_id} deletado.")
             return True
-
         except Exception as e:
             db.rollback()
-
-            print("Erro ao deletar:", str(e))
-
-            raise Exception(
-                "Erro ao excluir no banco de dados"
-            )
-
+            print("❌ Erro ao deletar produto:", str(e))
+            raise Exception("Erro ao excluir no banco de dados")
     finally:
         db.close()
 
-
-# =========================
-# ATUALIZAR PRODUTO
-# =========================
-def atualizar_produto(
-    produto_id,
-    user_id,
-    data,
-    arquivo_foto
-):
+def atualizar_produto(produto_id, user_id, data, arquivo_foto):
     db = SessionLocal()
-
     try:
-        # 1. BUSCA O PRODUTO E VALIDA DONO
         produto = db.get(Produto, produto_id)
-
         if not produto:
             raise Exception("Produto não encontrado")
 
         if produto.produtor_id != user_id:
-            raise Exception(
-                "Você não tem permissão para editar este produto"
-            )
+            raise Exception("Você não tem permissão para editar este produto")
 
-        # 2. ATUALIZA CAMPOS DE TEXTO
-        produto.nome = data.get(
-            'nome',
-            produto.nome
-        )
+        foto_antiga = produto.foto
 
-        produto.preco = data.get(
-            'preco',
-            produto.preco
-        )
+        produto.nome = data.get('nome', produto.nome)
+        produto.preco = data.get('preco', produto.preco)
+        produto.quantidade = data.get('quantidade', produto.quantidade)
+        produto.unidade = data.get('unidade', produto.unidade)
+        produto.categoria = data.get('categoria', produto.categoria)
+        produto.descricao = data.get('descricao', produto.descricao)
+        produto.status = data.get('status', produto.status)
 
-        produto.quantidade = data.get(
-            'quantidade',
-            produto.quantidade
-        )
-
-        produto.unidade = data.get(
-            'unidade',
-            produto.unidade
-        )
-
-        produto.categoria = data.get(
-            'categoria',
-            produto.categoria
-        )
-
-        produto.descricao = data.get(
-            'descricao',
-            produto.descricao
-        )
-
-        produto.status = data.get(
-            'status',
-            produto.status
-        )
-
-        # 3. PROCESSA NOVA FOTO
         if arquivo_foto:
-
-            # Pega a extensão da imagem
             extensao = ""
-
             if arquivo_foto.filename and "." in arquivo_foto.filename:
-                extensao = "." + arquivo_foto.filename.rsplit(
-                    ".", 1
-                )[1].lower()
+                extensao = "." + arquivo_foto.filename.rsplit(".", 1)[1].lower()
 
-            # Gera nome único
-            nome_blob = f"{uuid4().hex}{extensao}"
+            novo_nome_blob = f"{uuid4().hex}{extensao}"
 
-            # Envia nova imagem para o Azure
             upload_arquivo(
                 arquivo_foto.file,
-                nome_blob,
+                novo_nome_blob,
                 CONTAINER_PRODUTOS
             )
 
-            # Atualiza o nome do Blob no banco
-            produto.foto = nome_blob
+            produto.foto = novo_nome_blob
 
-        # 4. SALVA NO BANCO
+            if (
+                foto_antiga
+                and foto_antiga != "foto_generica.png"
+                and not foto_antiga.startswith("http://")
+                and not foto_antiga.startswith("https://")
+            ):
+                try:
+                    deletar_arquivo(
+                        foto_antiga,
+                        CONTAINER_PRODUTOS
+                    )
+                    print(f"🗑️ Foto antiga do produto {produto_id} removida do Azure.")
+                except Exception as e:
+                    print("⚠️ Não foi possível excluir a foto antiga:", str(e))
+
         try:
             db.commit()
             db.refresh(produto)
-
+            print(f"✅ SUCESSO: Produto {produto_id} atualizado.")
             return produto
-
         except Exception as e:
             db.rollback()
-
-            raise Exception(
-                f"Erro ao atualizar banco: {str(e)}"
-            )
-
+            if arquivo_foto and 'novo_nome_blob' in locals():
+                try:
+                    deletar_arquivo(
+                        novo_nome_blob,
+                        CONTAINER_PRODUTOS
+                    )
+                except Exception as erro_blob:
+                    print(
+                        "⚠️ Não foi possível remover o novo Blob após erro no banco:",
+                        str(erro_blob)
+                    )
+            raise Exception(f"Erro ao atualizar banco: {str(e)}")
     finally:
         db.close()
