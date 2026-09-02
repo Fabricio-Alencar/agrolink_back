@@ -13,10 +13,13 @@ def cadastro(data: dict):
     try:
         usuario = criar_usuario(data)
 
-        # Retornamos sucesso. O JS lerá isso e fará o redirecionamento.
         return {
-            "msg": "Usuário criado com sucesso",
-            "proxima_pagina": "/login"
+            "msg": "Login realizado",
+            "user": {
+                "id": usuario.id,
+                "nome": usuario.nome,
+                "tipo": usuario.tipo
+            }
         }
 
     except Exception as e:
