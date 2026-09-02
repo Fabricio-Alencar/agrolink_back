@@ -1,88 +1,113 @@
-from flask import Blueprint, request, jsonify, session
-from services import perfil_service
+from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, status
 
-perfil_bp = Blueprint('perfil', __name__)
+from services import perfil_service
+from auth.dependencies import get_current_user
+
+
+router = APIRouter(tags=["Perfil"])
+
 
 # =========================
 # BUSCAR DADOS DO PERFIL (LOGADO)
 # =========================
-@perfil_bp.route('/perfil', methods=['GET'])
-def obter_perfil():
-    # 1. VERIFICA USUÁRIO LOGADO
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+@router.get("/perfil")
+def obter_perfil(usuario_logado=Depends(get_current_user)):
+    # 1. PEGA O ID DO USUÁRIO LOGADO
+    user_id = usuario_logado["user_id"]
 
     try:
         # 2. CHAMA O SERVICE
         usuario = perfil_service.obter_perfil_usuario(user_id)
 
         # 3. RETORNA DADOS FORMATADOS PARA O FRONT
-        return jsonify({
+        return {
             "nome": usuario.nome,
             "email": usuario.email,
             "telefone": usuario.telefone,
             "cidade": usuario.cidade,
             "estado": usuario.estado,
-            "foto_perfil": getattr(usuario, 'foto_perfil', 'assets/user.webp'),
+            "foto_perfil": getattr(usuario, "foto_perfil", "assets/user.webp"),
             "tipo": usuario.tipo
-        }), 200
+        }
 
     except Exception as e:
-        return jsonify({"erro": str(e)}), 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 # =========================
 # ATUALIZAR PERFIL E FOTO (LOGADO)
 # =========================
-@perfil_bp.route('/perfil', methods=['POST']) # Usamos POST por causa do envio de Multipart/FormData da imagem
-def atualizar_perfil():
-    # 1. VERIFICA USUÁRIO LOGADO
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+@router.post("/perfil")
+def atualizar_perfil(
+    usuario_logado=Depends(get_current_user),
 
-    # 2. CAPTURA DADOS E FOTO (Igual feito em produtos_routes.py)
-    data = request.form.to_dict()
-    arquivo_foto = request.files.get('foto')
+    nome: str | None = Form(default=None),
+    email: str | None = Form(default=None),
+    telefone: str | None = Form(default=None),
+    cidade: str | None = Form(default=None),
+    estado: str | None = Form(default=None),
+    senha: str | None = Form(default=None),
+
+    foto: UploadFile | None = File(default=None)
+):
+    # 1. PEGA O ID DO USUÁRIO LOGADO
+    user_id = usuario_logado["user_id"]
+
+    # 2. MONTA OS DADOS DO FORMULÁRIO
+    data = {
+        "nome": nome,
+        "email": email,
+        "telefone": telefone,
+        "cidade": cidade,
+        "estado": estado,
+        "senha": senha
+    }
 
     try:
         # 3. CHAMA O SERVICE
-        usuario = perfil_service.atualizar_perfil_usuario(user_id, data, arquivo_foto)
+        usuario = perfil_service.atualizar_perfil_usuario(
+            user_id,
+            data,
+            foto
+        )
 
-        # Atualiza o nome na sessão caso o usuário tenha alterado no perfil
-        session["nome"] = usuario.nome
-        session["foto_perfil"] = getattr(usuario, 'foto_perfil', 'assets/user.webp')
-
-        return jsonify({
+        return {
             "msg": "Perfil atualizado com sucesso",
-            "foto_perfil": getattr(usuario, 'foto_perfil', 'assets/user.webp')
-        }), 200
+            "foto_perfil": getattr(
+                usuario,
+                "foto_perfil",
+                "assets/user.webp"
+            )
+        }
 
     except Exception as e:
-        return jsonify({"erro": str(e)}), 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 # =========================
 # EXCLUIR CONTA (LOGADO)
 # =========================
-@perfil_bp.route('/perfil', methods=['DELETE'])
-def excluir_conta():
-    # 1. VERIFICA USUÁRIO LOGADO
-    user_id = session.get("user_id")
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+@router.delete("/perfil")
+def excluir_conta(usuario_logado=Depends(get_current_user)):
+    # 1. PEGA O ID DO USUÁRIO LOGADO
+    user_id = usuario_logado["user_id"]
 
     try:
         # 2. CHAMA O SERVICE
         perfil_service.excluir_conta_usuario(user_id)
 
-        # 3. LIMPA A SESSÃO LOGO APÓS A EXCLUSÃO
-        session.clear() 
-
-        return jsonify({
+        return {
             "msg": "Conta excluída com sucesso"
-        }), 200
+        }
 
     except Exception as e:
-        return jsonify({"erro": str(e)}), 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )

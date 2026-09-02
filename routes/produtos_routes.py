@@ -1,88 +1,102 @@
-from flask import Blueprint, request, jsonify, session
-from services import produto_service
-from services.ceagesp import obtener_cotacao_ceagesp
+from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, status
 
-produtos_bp = Blueprint('produtos', __name__)
+from services import produto_service
+from auth.dependencies import get_current_user
+
+
+router = APIRouter(tags=["Produtos"])
 
 
 # =========================
 # MEUS PRODUTOS (LOGADO)
 # =========================
-@produtos_bp.route('/meus-produtos', methods=['GET'])
-def meus_produtos():
+@router.get("/meus-produtos")
+def meus_produtos(usuario_logado=Depends(get_current_user)):
 
-    # 🔐 pega usuário logado da sessão Flask
-    user_id = session.get("user_id")
+    # pega usuário logado
+    user_id = usuario_logado["user_id"]
 
-    # 🚨 bloqueia acesso se não estiver logado
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+    try:
+        # busca produtos do usuário
+        produtos = produto_service.listar_produtos_produtor(user_id)
 
-    # 📦 busca produtos do usuário
-    produtos = produto_service.listar_produtos_produtor(user_id)
+        # retorna JSON formatado
+        return [
+            {
+                "id": p.id,
+                "nome": p.nome,
+                "preco": p.preco,
+                "quantidade": p.quantidade,
+                "unidade": p.unidade,
+                "categoria": p.categoria,
+                "descricao": p.descricao,
+                "status": p.status,
 
-    # 🔄 retorna JSON formatado
-    return jsonify([
-        {
-            "id": p.id,
-            "nome": p.nome,
-            "preco": p.preco,
-            "quantidade": p.quantidade,
-            "unidade": p.unidade,
-            "categoria": p.categoria,
-            "descricao": p.descricao,
-            "status": p.status,
+                # URL pública Azure Blob Storage
+                "foto": p.foto
+            }
+            for p in produtos
+        ]
 
-            # 📸 URL pública Azure Blob Storage
-            "foto": p.foto
-        }
-        for p in produtos
-    ]), 200
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 # =========================
 # CRIAR PRODUTO (LOGADO)
 # =========================
-@produtos_bp.route('/produtos', methods=['POST'])
-def criar_produto():
+@router.post("/produtos", status_code=status.HTTP_201_CREATED)
+def criar_produto(
+    usuario_logado=Depends(get_current_user),
+
+    nome: str = Form(...),
+    preco: float = Form(...),
+    quantidade: float = Form(...),
+    unidade: str = Form(...),
+    categoria: str = Form(...),
+    descricao: str = Form(...),
+    status_produto: str = Form(...), #    status_produto: str = Form(..., alias="status"),
+    foto: UploadFile | None = File(default=None)
+):
 
     # =========================
-    # 1. CAPTURA DADOS
+    # 1. PEGA USUÁRIO LOGADO
     # =========================
-    data = request.form.to_dict()
-
-    # captura arquivo enviado
-    arquivo_foto = request.files.get('foto')
+    user_id = usuario_logado["user_id"]
 
     # =========================
-    # 2. VALIDA LOGIN
+    # 2. MONTA OS DADOS
     # =========================
-    user_id = session.get("user_id")
+    data = {
+        "nome": nome,
+        "preco": preco,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "categoria": categoria,
+        "descricao": descricao,
+        "status": status_produto,
 
-    if not user_id:
-        return jsonify({
-            "erro": "Usuário não autenticado"
-        }), 401
-
-    # =========================
-    # 3. VINCULA AO PRODUTOR
-    # =========================
-    data['produtor_id'] = user_id
+        # vincula ao produtor logado
+        "produtor_id": user_id
+    }
 
     try:
 
         # =========================
-        # 4. CRIA PRODUTO
+        # 3. CRIA PRODUTO
         # =========================
         produto = produto_service.criar_produto(
             data,
-            arquivo_foto
+            foto
         )
 
         # =========================
-        # 5. RESPOSTA
+        # 4. RESPOSTA
         # =========================
-        return jsonify({
+        return {
             "msg": "Produto criado com sucesso",
 
             "produto": {
@@ -92,32 +106,27 @@ def criar_produto():
                 "descricao": produto.descricao,
                 "foto": produto.foto
             }
-
-        }), 201
+        }
 
     except Exception as e:
 
-        return jsonify({
-            "erro": str(e)
-        }), 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
 
 
 # =========================
 # EXCLUIR PRODUTO
 # =========================
-@produtos_bp.route(
-    '/produtos/<int:produto_id>',
-    methods=['DELETE']
-)
-def excluir_produto(produto_id):
+@router.delete("/produtos/{produto_id}")
+def excluir_produto(
+    produto_id: int,
+    usuario_logado=Depends(get_current_user)
+):
 
-    # 🔐 usuário logado
-    user_id = session.get("user_id")
-
-    if not user_id:
-        return jsonify({
-            "erro": "Usuário não autenticado"
-        }), 401
+    # usuário logado
+    user_id = usuario_logado["user_id"]
 
     try:
 
@@ -127,40 +136,52 @@ def excluir_produto(produto_id):
             user_id
         )
 
-        return jsonify({
+        return {
             "msg": "Produto removido com sucesso",
             "id_excluido": produto_id
-        }), 200
+        }
 
     except Exception as e:
 
-        return jsonify({
-            "erro": str(e)
-        }), 403
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail=str(e)
+        )
 
 
 # =========================
 # ATUALIZAR PRODUTO
 # =========================
-@produtos_bp.route(
-    '/produtos/<int:produto_id>',
-    methods=['POST']
-)
-def atualizar_produto(produto_id):
+@router.post("/produtos/{produto_id}")
+def atualizar_produto(
+    produto_id: int,
 
-    # 🔐 usuário logado
-    user_id = session.get("user_id")
+    usuario_logado=Depends(get_current_user),
 
-    if not user_id:
-        return jsonify({
-            "erro": "Usuário não autenticado"
-        }), 401
+    nome: str | None = Form(default=None),
+    preco: float | None = Form(default=None),
+    quantidade: float | None = Form(default=None),
+    unidade: str | None = Form(default=None),
+    categoria: str | None = Form(default=None),
+    descricao: str | None = Form(default=None),
+    status_produto: str | None = Form(default=None, alias="status"),
+
+    foto: UploadFile | None = File(default=None)
+):
+
+    # usuário logado
+    user_id = usuario_logado["user_id"]
 
     # captura dados
-    data = request.form.to_dict()
-
-    # captura nova foto
-    arquivo_foto = request.files.get('foto')
+    data = {
+        "nome": nome,
+        "preco": preco,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "categoria": categoria,
+        "descricao": descricao,
+        "status": status_produto
+    }
 
     try:
 
@@ -169,10 +190,10 @@ def atualizar_produto(produto_id):
             produto_id,
             user_id,
             data,
-            arquivo_foto
+            foto
         )
 
-        return jsonify({
+        return {
 
             "msg": "Produto atualizado com sucesso",
 
@@ -182,28 +203,11 @@ def atualizar_produto(produto_id):
                 "foto": produto.foto
             }
 
-        }), 200
+        }
 
     except Exception as e:
 
-        return jsonify({
-            "erro": str(e)
-        }), 400
-
-
-# Adicione a nova rota da CEAGESP:
-@produtos_bp.route('/api/cotacoes-ceagesp', methods=['GET'])
-def api_ceagesp():
-    nome_produto = request.args.get('produto')
-    categoria_produto = request.args.get('categoria', 'frutas')
-
-    if not nome_produto:
-        return jsonify({"erro": "O parâmetro 'produto' é obrigatório."}), 400
-
-    try:
-        # Chama a função do Selenium dentro de services/ceagesp.py
-        dados = obtener_cotacao_ceagesp(nome_produto, categoria_produto)
-        return jsonify(dados)
-    except Exception as e:
-        print(f"Erro interno no Selenium: {e}")
-        return jsonify({"erro": "Não foi possível obter os dados da CEAGESP."}), 500
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )

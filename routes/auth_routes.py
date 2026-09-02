@@ -1,55 +1,76 @@
-from flask import Blueprint, request, jsonify, session
+from fastapi import APIRouter, Response, HTTPException, Depends, status
+
 from services.usuario_service import criar_usuario, login_usuario
+from auth.security import criar_token
+from auth.dependencies import get_current_user
 
-auth_bp = Blueprint("auth", __name__)
 
-@auth_bp.route("/cadastro", methods=["POST"])
-def cadastro():
-    data = request.json
+router = APIRouter(tags=["Autenticação"])
+
+
+@router.post("/cadastro", status_code=status.HTTP_201_CREATED)
+def cadastro(data: dict):
     try:
         usuario = criar_usuario(data)
+
         # Retornamos sucesso. O JS lerá isso e fará o redirecionamento.
-        return jsonify({
+        return {
             "msg": "Usuário criado com sucesso",
-            "proxima_pagina": "/login" # Opcional: enviar a rota desejada aqui
-        }), 201
+            "proxima_pagina": "/login"
+        }
+
     except Exception as e:
-        return jsonify({"erro": str(e)}), 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
+
 
 # =========================
 # LOGIN
 # =========================
-@auth_bp.route("/login", methods=["POST"])
-def login():
-    data = request.json
-
+@router.post("/login")
+def login(data: dict, response: Response):
     try:
         usuario = login_usuario(data)
 
-        # 🔥 sessão (usuário logado)
-        session["user_id"] = usuario.id
-        session["tipo"] = usuario.tipo
-        session["nome"] = usuario.nome
+        # Cria o token JWT
+        token = criar_token(
+            usuario.id,
+            usuario.tipo
+        )
 
-        return jsonify({
+        # Salva o JWT em um cookie HttpOnly
+        response.set_cookie(
+            key="access_token",        # Nome do cookie
+            value=token,               # JWT
+            httponly=True,             # Bloqueia acesso via JS
+            secure=True,               # Apenas HTTPS
+            samesite="none",           # Permite requisições entre origens
+            max_age=60 * 60 * 24       # Expira em 24 horas
+        )
+
+        return {
             "msg": "Login realizado",
             "user_id": usuario.id,
             "tipo": usuario.tipo
-        })
+        }
 
     except Exception as e:
-        return jsonify({"erro": str(e)}), 401
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail=str(e)
+        )
 
-@auth_bp.route("/session", methods=["GET"])
-def get_session():
-    if "user_id" not in session:
-        return jsonify({
-            "logado": False
-        })
 
-    return jsonify({
+# =========================
+# SESSÃO
+# =========================
+@router.get("/session")
+def get_session(usuario=Depends(get_current_user)):
+    return {
         "logado": True,
-        "user_id": session.get("user_id"),
-        "tipo": session.get("tipo"),
-        "nome": session.get("nome")
-    })
+        "user_id": usuario["user_id"],
+        "tipo": usuario["tipo"],
+        "nome": usuario["nome"]
+    }

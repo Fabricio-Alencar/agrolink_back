@@ -1,7 +1,9 @@
 import re
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
-from models import db
+from sqlalchemy import select
+
+from database import SessionLocal
 from models.usuario import Usuario
 
 # =========================
@@ -35,6 +37,8 @@ def verificar_senha(senha_hash, senha_texto):
 # =========================
 
 def criar_usuario(data):
+    db = SessionLocal()
+
     try:
         # Sanitização e extração segura
         nome = sanitizar_input(data.get("nome"))
@@ -55,7 +59,11 @@ def criar_usuario(data):
 
         # 3. Prevenção contra duplicidade de e-mail
         # O uso do SQLAlchemy ORM (.filter_by) protege contra SQL Injection
-        if Usuario.query.filter_by(email=email).first():
+        resultado = db.execute(
+            select(Usuario).where(Usuario.email == email)
+        )
+
+        if resultado.scalar_one_or_none():
             raise ValueError("Não foi possível realizar o cadastro. Dados inválidos")
 
         # 4. Geração do Hash da Senha
@@ -73,19 +81,25 @@ def criar_usuario(data):
             avaliacao=5.0
         )
 
-        db.session.add(usuario)
-        db.session.commit()
+        db.add(usuario)
+        db.commit()
+        db.refresh(usuario)
 
         return usuario
 
     except ValueError as ve:
         # Erros esperados e controlados (validações)
+        db.rollback()
         raise ve
+
     except Exception as e:
         # Reversão do banco em caso de erro inesperado e log de segurança
-        db.session.rollback()
+        db.rollback()
         logging.error(f"Erro interno no cadastro de usuário: {e}")
         raise Exception("Não foi possível processar o cadastro no momento.")
+
+    finally:
+        db.close()
 
 
 # =========================
@@ -93,6 +107,8 @@ def criar_usuario(data):
 # =========================
 
 def login_usuario(data):
+    db = SessionLocal()
+
     try:
         # Sanitização da entrada
         email = sanitizar_input(data.get("email"))
@@ -107,7 +123,11 @@ def login_usuario(data):
             raise ValueError("Credenciais inválidas.")
 
         # 2. Busca do usuário de forma segura via ORM
-        usuario = Usuario.query.filter_by(email=email).first()
+        resultado = db.execute(
+            select(Usuario).where(Usuario.email == email)
+        )
+
+        usuario = resultado.scalar_one_or_none()
 
         # 3. Alertas Genéricos: Se o usuário não existir, informamos "Credenciais inválidas"
         if not usuario:
@@ -126,7 +146,11 @@ def login_usuario(data):
     except ValueError as ve:
         # Levanta as mensagens genéricas de "Credenciais inválidas"
         raise ve
+
     except Exception as e:
         # Previne o vazamento da stack trace em caso de falha de banco/sistema
         logging.error(f"Erro interno durante login: {e}")
         raise Exception("Não foi possível realizar o login.")
+
+    finally:
+        db.close()

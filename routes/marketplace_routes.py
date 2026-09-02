@@ -1,27 +1,25 @@
-from flask import Blueprint, request, jsonify, session
+from fastapi import APIRouter, Depends, HTTPException, status
+
 from services import marketplace_service
-from models import Produto
-from models import Negociacao
-from models import db
-from datetime import datetime
+from auth.dependencies import get_current_user
 
 
-marketplace_bp = Blueprint('marketplace', __name__)
+router = APIRouter(tags=["Marketplace"])
+
 
 # =========================
 # LISTAR PRODUTOS DO MARKETPLACE (LOGADO)
 # =========================
-@marketplace_bp.route('/produtos', methods=['GET'])
-def produtos():
-    user_id = session.get("user_id")
+@router.get("/produtos")
+def produtos(usuario_logado=Depends(get_current_user)):
 
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+    # pega usuário logado
+    user_id = usuario_logado["user_id"]
 
     try:
         produtos = marketplace_service.listar_produtos()
 
-        return jsonify([
+        return [
             {
                 "id": p.id,
                 "nome": p.nome,
@@ -32,42 +30,50 @@ def produtos():
                 "descricao": p.descricao,
                 "foto": p.foto,
                 "status": p.status,
-                # 👤 Dados do Produtor extraídos via backref
+
+                # Dados do Produtor extraídos via relacionamento
                 "produtor_nome": p.produtor.nome,
                 "produtor_estado": p.produtor.estado,
                 "produtor_cidade": p.produtor.cidade,
                 "produtor_avaliacao": p.produtor.avaliacao or 5.0 # Caso seja nulo
             }
             for p in produtos
-        ]), 200
+        ]
 
     except Exception as e:
-        return jsonify({"erro": f"Erro ao listar produtos: {str(e)}"}), 500
-    
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erro ao listar produtos: {str(e)}"
+        )
+
 
 # =========================
 # REGISTRAR PEDIDO (LOGADO)
 # =========================
-@marketplace_bp.route('/negociar', methods=['POST'])
-def criar_negociacao():
-    # 1. Identifica o comprador pela sessão
-    comprador_id = session.get("user_id")
-    if not comprador_id:
-        return jsonify({"erro": "Faça login para negociar"}), 401
+@router.post("/negociar", status_code=status.HTTP_201_CREATED)
+def criar_negociacao(
+    data: dict,
+    usuario_logado=Depends(get_current_user)
+):
 
-    # 2. Pega os dados do JSON enviado pelo modal.js
-    data = request.get_json()
+    # 1. Identifica o comprador pelo usuário logado
+    comprador_id = usuario_logado["user_id"]
 
     try:
-        # 3. Processa a negociação
-        negociacao = marketplace_service.registrar_pedido(comprador_id, data)
+        # 2. Processa a negociação
+        negociacao = marketplace_service.registrar_pedido(
+            comprador_id,
+            data
+        )
 
-        return jsonify({
+        return {
             "msg": "Solicitação de negociação enviada!",
             "id": negociacao.id,
             "status": negociacao.status
-        }), 201
+        }
 
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=str(e)
+        )
