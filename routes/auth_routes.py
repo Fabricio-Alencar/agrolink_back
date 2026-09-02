@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Response, HTTPException, Depends, status
+from fastapi.responses import JSONResponse
 
 from services.usuario_service import criar_usuario, login_usuario
 from auth.security import criar_token
@@ -23,9 +24,11 @@ def cadastro(data: dict):
         }
 
     except Exception as e:
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+            content={
+                "erro": str(e)
+            }
         )
 
 
@@ -55,14 +58,19 @@ def login(data: dict, response: Response):
 
         return {
             "msg": "Login realizado",
-            "user_id": usuario.id,
-            "tipo": usuario.tipo
+            "user": {
+                "id": usuario.id,
+                "nome": usuario.nome,
+                "tipo": usuario.tipo
+            }
         }
 
     except Exception as e:
-        raise HTTPException(
+        return JSONResponse(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail=str(e)
+            content={
+                "erro": str(e)
+            }
         )
 
 

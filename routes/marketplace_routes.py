@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
 
 from services import marketplace_service
 from auth.dependencies import get_current_user
@@ -12,9 +13,6 @@ router = APIRouter(tags=["Marketplace"])
 # =========================
 @router.get("/produtos")
 def produtos(usuario_logado=Depends(get_current_user)):
-
-    # pega usuário logado
-    user_id = usuario_logado["user_id"]
 
     try:
         produtos = marketplace_service.listar_produtos()
@@ -30,20 +28,20 @@ def produtos(usuario_logado=Depends(get_current_user)):
                 "descricao": p.descricao,
                 "foto": p.foto,
                 "status": p.status,
-
-                # Dados do Produtor extraídos via relacionamento
                 "produtor_nome": p.produtor.nome,
                 "produtor_estado": p.produtor.estado,
                 "produtor_cidade": p.produtor.cidade,
-                "produtor_avaliacao": p.produtor.avaliacao or 5.0 # Caso seja nulo
+                "produtor_avaliacao": p.produtor.avaliacao or 5.0
             }
             for p in produtos
         ]
 
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Erro ao listar produtos: {str(e)}"
+        return JSONResponse(
+            status_code=500,
+            content={
+                "erro": f"Erro ao listar produtos: {str(e)}"
+            }
         )
 
 
@@ -56,11 +54,9 @@ def criar_negociacao(
     usuario_logado=Depends(get_current_user)
 ):
 
-    # 1. Identifica o comprador pelo usuário logado
     comprador_id = usuario_logado["user_id"]
 
     try:
-        # 2. Processa a negociação
         negociacao = marketplace_service.registrar_pedido(
             comprador_id,
             data
@@ -73,7 +69,9 @@ def criar_negociacao(
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )

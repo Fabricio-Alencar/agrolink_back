@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, Form, UploadFile, File, status
+from fastapi.responses import JSONResponse
 
 from services import produto_service
 from auth.dependencies import get_current_user
@@ -39,9 +40,11 @@ def meus_produtos(usuario_logado=Depends(get_current_user)):
         ]
 
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )
 
 
@@ -58,7 +61,7 @@ def criar_produto(
     unidade: str = Form(...),
     categoria: str = Form(...),
     descricao: str = Form(...),
-    status_produto: str = Form(...), #    status_produto: str = Form(..., alias="status"),
+    status_produto: str = Form(...), # status_produto: str = Form(..., alias="status"),
     foto: UploadFile | None = File(default=None)
 ):
 
@@ -110,9 +113,11 @@ def criar_produto(
 
     except Exception as e:
 
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )
 
 
@@ -143,9 +148,11 @@ def excluir_produto(
 
     except Exception as e:
 
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail=str(e)
+        return JSONResponse(
+            status_code=403,
+            content={
+                "erro": str(e)
+            }
         )
 
 
@@ -207,7 +214,9 @@ def atualizar_produto(
 
     except Exception as e:
 
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )

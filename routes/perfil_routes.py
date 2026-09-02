@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, Form, UploadFile, File, HTTPException, status
+from fastapi import APIRouter, Depends, Form, UploadFile, File
+from fastapi.responses import JSONResponse
 
 from services import perfil_service
 from auth.dependencies import get_current_user
@@ -31,9 +32,11 @@ def obter_perfil(usuario_logado=Depends(get_current_user)):
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )
 
 
@@ -84,9 +87,11 @@ def atualizar_perfil(
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )
 
 
@@ -107,7 +112,9 @@ def excluir_conta(usuario_logado=Depends(get_current_user)):
         }
 
     except Exception as e:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=str(e)
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
         )
