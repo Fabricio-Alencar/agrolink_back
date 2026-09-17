@@ -1,4 +1,7 @@
+import time
+
 from fastapi import Cookie, HTTPException, status
+
 from database import SessionLocal
 from models.usuario import Usuario
 
@@ -8,7 +11,11 @@ from auth.security import decodificar_token
 # =========================
 # BUSCAR USUÁRIO LOGADO
 # =========================
-def get_current_user(access_token: str | None = Cookie(default=None)):
+def get_current_user(
+    access_token: str | None = Cookie(default=None)
+):
+    inicio = time.perf_counter()
+
     # Verifica se existe um token no cookie
     if not access_token:
         raise HTTPException(
@@ -18,7 +25,16 @@ def get_current_user(access_token: str | None = Cookie(default=None)):
 
     try:
         # Decodifica e valida o JWT
+        inicio_jwt = time.perf_counter()
+
         payload = decodificar_token(access_token)
+
+        fim_jwt = time.perf_counter()
+
+        print(
+            f"Tempo para decodificar JWT: "
+            f"{(fim_jwt - inicio_jwt) * 1000:.2f} ms"
+        )
 
         user_id = payload.get("sub")
         tipo = payload.get("tipo")
@@ -30,11 +46,19 @@ def get_current_user(access_token: str | None = Cookie(default=None)):
                 detail="Token inválido"
             )
 
+        # =========================
+        # BUSCA DO USUÁRIO NO BANCO
+        # =========================
+
+        inicio_banco = time.perf_counter()
+
         db = SessionLocal()
 
         try:
-            # Busca o usuário no banco
-            usuario = db.get(Usuario, int(user_id))
+            usuario = db.get(
+                Usuario,
+                int(user_id)
+            )
 
             if not usuario:
                 raise HTTPException(
@@ -43,13 +67,20 @@ def get_current_user(access_token: str | None = Cookie(default=None)):
                 )
 
             return {
-                "user_id": usuario.id,  # ID do usuário
-                "tipo": usuario.tipo,   # Tipo do usuário
-                "nome": usuario.nome    # Nome do usuário
+                "user_id": usuario.id,
+                "tipo": usuario.tipo,
+                "nome": usuario.nome
             }
 
         finally:
             db.close()
+
+            fim_banco = time.perf_counter()
+
+            print(
+                f"Tempo da busca do usuário no banco: "
+                f"{(fim_banco - inicio_banco) * 1000:.2f} ms"
+            )
 
     except HTTPException:
         raise
@@ -58,4 +89,12 @@ def get_current_user(access_token: str | None = Cookie(default=None)):
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido ou expirado"
+        )
+
+    finally:
+        fim = time.perf_counter()
+
+        print(
+            f"Tempo total do get_current_user: "
+            f"{(fim - inicio) * 1000:.2f} ms"
         )

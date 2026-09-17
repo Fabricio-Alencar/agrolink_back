@@ -1,3 +1,5 @@
+import time
+
 from fastapi import APIRouter, Depends, Form, UploadFile, File, status
 from fastapi.responses import JSONResponse
 
@@ -14,12 +16,35 @@ router = APIRouter(tags=["Produtos"])
 
 @router.get("/meus-produtos")
 def meus_produtos(usuario_logado=Depends(get_current_user)):
+    inicio = time.perf_counter()
+
     user_id = usuario_logado["user_id"]
 
     try:
-        produtos = produto_service.listar_produtos_produtor(user_id)
+        # ==========================================
+        # BUSCA DOS PRODUTOS
+        # ==========================================
 
-        return [
+        inicio_produtos = time.perf_counter()
+
+        produtos = produto_service.listar_produtos_produtor(
+            user_id
+        )
+
+        fim_produtos = time.perf_counter()
+
+        print(
+            f"Tempo banco + serviço: "
+            f"{(fim_produtos - inicio_produtos) * 1000:.2f} ms"
+        )
+
+        # ==========================================
+        # GERAÇÃO DAS URLs SAS
+        # ==========================================
+
+        inicio_sas = time.perf_counter()
+
+        resposta = [
             {
                 "id": p.id,
                 "nome": p.nome,
@@ -42,6 +67,26 @@ def meus_produtos(usuario_logado=Depends(get_current_user)):
             }
             for p in produtos
         ]
+
+        fim_sas = time.perf_counter()
+
+        print(
+            f"Tempo geração URLs SAS: "
+            f"{(fim_sas - inicio_sas) * 1000:.2f} ms"
+        )
+
+        # ==========================================
+        # TEMPO TOTAL DA ROTA
+        # ==========================================
+
+        fim = time.perf_counter()
+
+        print(
+            f"Tempo total da rota: "
+            f"{(fim - inicio) * 1000:.2f} ms"
+        )
+
+        return resposta
 
     except Exception as e:
         return JSONResponse(
