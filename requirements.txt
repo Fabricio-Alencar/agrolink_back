@@ -26,3 +26,5 @@ requests==2.34.2
 pillow==11.1.0
 numpy==2.4.3
 
+
+redis

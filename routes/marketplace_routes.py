@@ -23,30 +23,30 @@ def produtos(usuario_logado=Depends(get_current_user)):
 
         return [
             {
-                "id": p.id,
-                "nome": p.nome,
-                "preco": p.preco,
-                "quantidade": p.quantidade,
-                "unidade": p.unidade,
-                "categoria": p.categoria,
-                "descricao": p.descricao,
+                "id": p["id"],
+                "nome": p["nome"],
+                "preco": p["preco"],
+                "quantidade": p["quantidade"],
+                "unidade": p["unidade"],
+                "categoria": p["categoria"],
+                "descricao": p["descricao"],
 
                 "foto": (
                     gerar_url_sas(
                         CONTAINER_PRODUTOS,
-                        p.foto
+                        p["foto"]
                     )
-                    if p.foto
-                    and p.foto != "foto_generica.png"
-                    and "uploads/produtos/foto_generica.png" not in p.foto
+                    if p["foto"]
+                    and p["foto"] != "foto_generica.png"
+                    and "uploads/produtos/foto_generica.png" not in p["foto"]
                     else None
                 ),
 
-                "status": p.status,
-                "produtor_nome": p.produtor.nome,
-                "produtor_estado": p.produtor.estado,
-                "produtor_cidade": p.produtor.cidade,
-                "produtor_avaliacao": p.produtor.avaliacao or 5.0
+                "status": p["status"],
+                "produtor_nome": p["produtor_nome"],
+                "produtor_estado": p["produtor_estado"],
+                "produtor_cidade": p["produtor_cidade"],
+                "produtor_avaliacao": p["produtor_avaliacao"]
             }
             for p in produtos
         ]

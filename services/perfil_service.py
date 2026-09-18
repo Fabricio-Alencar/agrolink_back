@@ -8,6 +8,9 @@ from services.azure_storage_service import (
     CONTAINER_USUARIOS
 )
 
+from services.cache_service import redis_client
+
+
 def obter_perfil_usuario(user_id):
     db = SessionLocal()
     try:
@@ -17,6 +20,7 @@ def obter_perfil_usuario(user_id):
         return usuario
     finally:
         db.close()
+
 
 def atualizar_perfil_usuario(user_id, data, arquivo_foto):
     db = SessionLocal()
@@ -56,14 +60,21 @@ def atualizar_perfil_usuario(user_id, data, arquivo_foto):
         try:
             db.commit()
             db.refresh(usuario)
+
+            # Se o usuário for produtor, os dados exibidos no Marketplace podem ter sido alterados.
+            if usuario.tipo == "produtor":
+                redis_client.delete("marketplace")
+
             print(f"✅ SUCESSO: Perfil do usuário {user_id} atualizado.")
             return usuario
+
         except Exception as e:
             db.rollback()
             raise Exception(f"Erro ao atualizar perfil no banco de dados: {str(e)}")
 
     finally:
         db.close()
+
 
 def excluir_conta_usuario(user_id):
     db = SessionLocal()
@@ -84,8 +95,14 @@ def excluir_conta_usuario(user_id):
         try:
             db.delete(usuario)
             db.commit()
+
+            # Se o usuário excluído for produtor, seus produtos não devem continuar no cache do Marketplace.
+            if usuario.tipo == "produtor":
+                redis_client.delete("marketplace")
+
             print(f"✅ SUCESSO: Conta do usuário {user_id} excluída.")
             return True
+
         except Exception as e:
             db.rollback()
             print("\n❌ [ERRO AO EXCLUIR CONTA]:", str(e))
