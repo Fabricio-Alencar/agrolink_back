@@ -21,6 +21,7 @@ app.add_middleware(
         "https://front-agrolink-aff0bvbqd2buhfax.eastus-01.azurewebsites.net",
         "https://back-agrolink-bmbkepbbdkabdhhd.eastus-01.azurewebsites.net",
         "https://agro-link.azurewebsites.net",
+        "https://agrolink-h3h0amghctcne7ey.brazilsouth-01.azurewebsites.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
