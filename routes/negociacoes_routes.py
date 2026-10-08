@@ -12,6 +12,162 @@ router = APIRouter(tags=["Negociações"])
 
 
 # =========================
+# BUSCAR UMA NEGOCIAÇÃO ESPECÍFICA
+# =========================
+@router.get("/negociacoes/detalhes/{id}")
+def buscar_negociacao_detalhes(
+    id: int,
+    usuario_logado=Depends(get_current_user)
+):
+
+    user_id = usuario_logado["user_id"]
+
+    # =========================
+    # BUSCA A NEGOCIAÇÃO
+    # =========================
+
+    negociacao = (
+        negociacoes_service.buscar_negociacao(
+            id
+        )
+    )
+
+    if not negociacao:
+
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "erro": "Negociação não encontrada"
+            }
+        )
+
+    # =========================
+    # VERIFICA ACESSO
+    # =========================
+
+    if (
+        negociacao.comprador_id != user_id
+        and
+        negociacao.vendedor_id != user_id
+    ):
+
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "erro": "Você não possui acesso a esta negociação."
+            }
+        )
+
+    # =========================
+    # IDENTIFICA O OUTRO PARTICIPANTE
+    # =========================
+
+    if negociacao.comprador_id == user_id:
+
+        parceiro = negociacao.vendedor
+
+    else:
+
+        parceiro = negociacao.comprador
+
+    # =========================
+    # RETORNA OS DADOS
+    # =========================
+
+    return {
+
+        "id": negociacao.id,
+
+        "quantidade": negociacao.quantidade,
+
+        "data_entrega": (
+            negociacao.data_entrega.isoformat()
+            if negociacao.data_entrega
+            else None
+        ),
+
+        "descricao": negociacao.descricao,
+
+        "status": negociacao.status,
+
+        # =========================
+        # PRODUTO
+        # =========================
+
+        "produto_nome": (
+            negociacao.produto.nome
+            if negociacao.produto
+            else "Produto"
+        ),
+
+        "produto_descricao": (
+            negociacao.produto.descricao
+            if negociacao.produto
+            else None
+        ),
+
+        "produto_unidade": (
+            negociacao.produto.unidade
+            if negociacao.produto
+            else None
+        ),
+
+        "produto_preco": (
+            negociacao.produto.preco
+            if negociacao.produto
+            else None
+        ),
+
+        "produto_foto": (
+            gerar_url_sas(
+                CONTAINER_PRODUTOS,
+                negociacao.produto.foto
+            )
+            if negociacao.produto
+            and negociacao.produto.foto
+            and negociacao.produto.foto != "foto_generica.png"
+            and "uploads/produtos/foto_generica.png"
+            not in negociacao.produto.foto
+            else None
+        ),
+
+        # =========================
+        # OUTRO PARTICIPANTE
+        # =========================
+
+        "negociante_nome": (
+            parceiro.nome
+            if parceiro
+            else "N/A"
+        ),
+
+        "negociante_estado": (
+            parceiro.estado
+            if parceiro
+            else "N/A"
+        ),
+
+        "negociante_cidade": (
+            parceiro.cidade
+            if parceiro
+            else "N/A"
+        ),
+
+        "negociante_telefone": (
+            parceiro.telefone
+            if parceiro
+            else "N/A"
+        ),
+
+        "negociante_email": (
+            parceiro.email
+            if parceiro
+            else "N/A"
+        )
+    }
+
+
+# =========================
 # LISTAR NEGOCIAÇÕES DO MARKETPLACE
 # =========================
 @router.get("/negociacoes/{tipo_de_negociante}")
@@ -23,6 +179,7 @@ def listar_negociacoes(
     user_id = usuario_logado["user_id"]
 
     try:
+
         negociacoes = negociacoes_service.listar_negociacoes(
             user_id,
             tipo_de_negociante
@@ -33,23 +190,33 @@ def listar_negociacoes(
         for p in negociacoes:
 
             if tipo_de_negociante.lower() == "produtor":
+
                 parceiro = p.comprador
+
             else:
+
                 parceiro = p.vendedor
 
             item = {
+
                 "id": p.id,
+
                 "quantidade": p.quantidade,
+
                 "data_entrega": (
                     p.data_entrega.isoformat()
                     if p.data_entrega
                     else None
                 ),
+
                 "descricao": p.descricao,
+
                 "status": p.status,
 
                 "produto_nome": p.produto.nome,
+
                 "produto_descricao": p.produto.descricao,
+
                 "produto_unidade": p.produto.unidade,
 
                 "produto_foto": (
@@ -71,21 +238,25 @@ def listar_negociacoes(
                     if parceiro
                     else "N/A"
                 ),
+
                 "negociante_estado": (
                     parceiro.estado
                     if parceiro
                     else "N/A"
                 ),
+
                 "negociante_cidade": (
                     parceiro.cidade
                     if parceiro
                     else "N/A"
                 ),
+
                 "negociante_telefone": (
                     parceiro.telefone
                     if parceiro
                     else "N/A"
                 ),
+
                 "negociante_email": (
                     parceiro.email
                     if parceiro
@@ -93,17 +264,23 @@ def listar_negociacoes(
                 ),
             }
 
-            lista_final.append(item)
+            lista_final.append(
+                item
+            )
 
         return lista_final
 
     except Exception as e:
-        print(f"[ERRO CRÍTICO] Falha na rota: {str(e)}")
+
+        print(
+            f"[ERRO CRÍTICO] Falha na rota: {str(e)}"
+        )
 
         raise HTTPException(
             status_code=500,
             detail={
-                "erro": f"Erro ao listar negociações: {str(e)}"
+                "erro":
+                    f"Erro ao listar negociações: {str(e)}"
             }
         )
 
@@ -121,6 +298,7 @@ def alterar_status(
     novo_status = data.get("status")
 
     if not novo_status:
+
         raise HTTPException(
             status_code=400,
             detail={
@@ -136,6 +314,7 @@ def alterar_status(
     )
 
     if codigo_http >= 400:
+
         raise HTTPException(
             status_code=codigo_http,
             detail={
@@ -162,6 +341,7 @@ def confirmar_acao(
     acao = data.get("acao")
 
     if not acao:
+
         raise HTTPException(
             status_code=400,
             detail={
@@ -177,6 +357,7 @@ def confirmar_acao(
     )
 
     if codigo_http >= 400:
+
         raise HTTPException(
             status_code=codigo_http,
             detail={
@@ -209,6 +390,7 @@ def deletar_negociacao(
     )
 
     if codigo_http >= 400:
+
         raise HTTPException(
             status_code=codigo_http,
             detail={

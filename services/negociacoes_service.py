@@ -178,3 +178,29 @@ def deletar_negociacao_service(negociacao_id, user_id):
 
     finally:
         db.close()
+
+# =========================
+# BUSCAR UMA NEGOCIAÇÃO ESPECÍFICA
+# =========================
+def buscar_negociacao(negociacao_id):
+    db = SessionLocal()
+
+    try:
+
+        negociacao = db.execute(
+            select(Negociacao)
+            .options(
+                joinedload(Negociacao.comprador),
+                joinedload(Negociacao.vendedor),
+                joinedload(Negociacao.produto)
+            )
+            .where(
+                Negociacao.id == negociacao_id
+            )
+        ).scalar_one_or_none()
+
+        return negociacao
+
+    finally:
+        db.close()
+
