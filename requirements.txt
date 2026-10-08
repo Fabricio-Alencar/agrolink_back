@@ -1,6 +1,6 @@
 # FastAPI
 fastapi==0.115.0
-uvicorn==0.30.1
+uvicorn[standard]==0.30.1
 
 # Banco de dados
 SQLAlchemy==2.0.49
@@ -26,5 +26,5 @@ requests==2.34.2
 pillow==11.1.0
 numpy==2.4.3
 
-
+# Cache
 redis
