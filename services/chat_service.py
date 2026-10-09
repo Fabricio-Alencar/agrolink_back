@@ -1,6 +1,9 @@
+
 from sqlalchemy.orm import Session
+from sqlalchemy.exc import IntegrityError
 
 from models.mensagem import Mensagem
+from models.conversa import Conversa
 from models.negociacao import Negociacao
 
 from database import SessionLocal
@@ -50,7 +53,87 @@ def usuario_tem_acesso(
 
 
 # =========================================================
-# LISTAR CONVERSAS
+# BUSCAR CONVERSA INICIADA
+# =========================================================
+
+def buscar_conversa(
+    db_chat: Session,
+    negociacao_id: int
+):
+
+    return (
+        db_chat.query(Conversa)
+        .filter(
+            Conversa.negociacao_id == negociacao_id
+        )
+        .first()
+    )
+
+
+# =========================================================
+# INICIAR CONVERSA
+# =========================================================
+
+def iniciar_conversa(
+    db_chat: Session,
+    negociacao_id: int,
+    usuario_id: int
+):
+
+    # ==========================================
+    # VERIFICA SE A CONVERSA JÁ EXISTE
+    # ==========================================
+
+    conversa = buscar_conversa(
+        db_chat,
+        negociacao_id
+    )
+
+    if conversa:
+        return conversa
+
+
+    # ==========================================
+    # CRIA O REGISTRO DA CONVERSA
+    # ==========================================
+
+    conversa = Conversa(
+        negociacao_id=negociacao_id,
+        iniciada_por_id=usuario_id
+    )
+
+    db_chat.add(conversa)
+
+    try:
+
+        db_chat.commit()
+
+        db_chat.refresh(conversa)
+
+        return conversa
+
+    except IntegrityError:
+
+        # ======================================
+        # OUTRA REQUISIÇÃO PODE TER CRIADO
+        # A CONVERSA AO MESMO TEMPO
+        # ======================================
+
+        db_chat.rollback()
+
+        conversa = buscar_conversa(
+            db_chat,
+            negociacao_id
+        )
+
+        if conversa:
+            return conversa
+
+        raise
+
+
+# =========================================================
+# LISTAR CONVERSAS INICIADAS
 # =========================================================
 
 def listar_conversas(
@@ -63,37 +146,60 @@ def listar_conversas(
     try:
 
         # ==========================================
-        # BUSCA AS NEGOCIAÇÕES DO USUÁRIO
+        # BUSCA SOMENTE CONVERSAS INICIADAS
         # ==========================================
 
-        negociacoes = (
-            db.query(Negociacao)
-            .filter(
-                (
-                    Negociacao.comprador_id == usuario_id
-                )
-                |
-                (
-                    Negociacao.vendedor_id == usuario_id
-                )
+        conversas_iniciadas = (
+            db_chat.query(Conversa)
+            .order_by(
+                Conversa.data_criacao.desc()
             )
             .all()
         )
-
 
         conversas = []
 
 
         # ==========================================
-        # VERIFICA QUAIS POSSUEM MENSAGENS
+        # PROCESSA CADA CONVERSA
         # ==========================================
 
-        for negociacao in negociacoes:
+        for conversa in conversas_iniciadas:
+
+            negociacao = db.get(
+                Negociacao,
+                conversa.negociacao_id
+            )
+
+            if not negociacao:
+                continue
+
+
+            # ======================================
+            # CONFERE SE O USUÁRIO PARTICIPA
+            # DA NEGOCIAÇÃO
+            # ======================================
+
+            if not usuario_tem_acesso(
+                negociacao,
+                usuario_id
+            ):
+                continue
+
+
+            # ======================================
+            # BUSCA A ÚLTIMA MENSAGEM
+            # ======================================
 
             ultima_mensagem = buscar_ultima_mensagem(
                 db_chat,
                 negociacao.id
             )
+
+
+            # ======================================
+            # CONTA MENSAGENS NÃO LIDAS
+            # ======================================
 
             mensagens_nao_lidas = contar_mensagens_nao_lidas(
                 db_chat,
@@ -102,16 +208,8 @@ def listar_conversas(
             )
 
 
-            # Se não existe mensagem,
-            # ainda não existe conversa
-
-            if not ultima_mensagem:
-
-                continue
-
-
             # ======================================
-            # IDENTIFICA A OUTRA PESSOA
+            # IDENTIFICA O OUTRO PARTICIPANTE
             # ======================================
 
             if negociacao.comprador_id == usuario_id:
@@ -123,47 +221,89 @@ def listar_conversas(
                 outro_usuario = negociacao.comprador
 
 
+            if not outro_usuario:
+                continue
+
+
             # ======================================
-            # ADICIONA A CONVERSA
+            # DADOS DA CONVERSA
             # ======================================
+
+            foto_perfil = (
+                gerar_url_sas(
+                    "usuarios",
+                    outro_usuario.foto_perfil
+                )
+                if outro_usuario.foto_perfil
+                else None
+            )
+
+            data_ordenacao = (
+                ultima_mensagem.data_envio
+                if ultima_mensagem
+                else conversa.data_criacao
+            )
+
 
             conversas.append(
                 {
+                    "conversa_id": conversa.id,
                     "negociacao_id": negociacao.id,
                     "usuario_id": outro_usuario.id,
                     "nome": outro_usuario.nome,
                     "tipo": outro_usuario.tipo,
-                    "foto_perfil": (
-                        gerar_url_sas(
-                            "usuarios",
-                            outro_usuario.foto_perfil
-                        )
-                        if outro_usuario.foto_perfil
-                        else None
-                    ),
+                    "foto_perfil": foto_perfil,
+
                     "produto": (
                         negociacao.produto.nome
                         if negociacao.produto
                         else "Produto"
                     ),
-                    "ultima_mensagem": ultima_mensagem.texto,
-                    "data_ultima_mensagem":
-                        ultima_mensagem.data_envio,
-                    "mensagens_nao_lidas":
-                        mensagens_nao_lidas
+
+                    # None significa que ainda não há mensagens.
+                    # Não criamos mensagens fictícias.
+                    "ultima_mensagem": (
+                        ultima_mensagem.texto
+                        if ultima_mensagem
+                        else None
+                    ),
+
+                    "data_ultima_mensagem": (
+                        ultima_mensagem.data_envio
+                        if ultima_mensagem
+                        else None
+                    ),
+
+                    "data_criacao": conversa.data_criacao,
+
+                    "tem_mensagens": (
+                        ultima_mensagem is not None
+                    ),
+
+                    "mensagens_nao_lidas": mensagens_nao_lidas,
+
+                    # Campo interno utilizado na ordenação.
+                    "_data_ordenacao": data_ordenacao
                 }
             )
 
 
         # ==========================================
-        # ORDENA PELA MENSAGEM MAIS RECENTE
+        # ORDENA PELA ATIVIDADE MAIS RECENTE
         # ==========================================
 
         conversas.sort(
-            key=lambda conversa:
-                conversa["data_ultima_mensagem"],
+            key=lambda item: item["_data_ordenacao"],
             reverse=True
         )
+
+
+        # ==========================================
+        # REMOVE CAMPO INTERNO
+        # ==========================================
+
+        for conversa in conversas:
+            conversa.pop("_data_ordenacao")
 
 
         return conversas
@@ -190,13 +330,11 @@ def criar_mensagem(
         texto=texto
     )
 
-
     db.add(mensagem)
 
     db.commit()
 
     db.refresh(mensagem)
-
 
     return mensagem
 
@@ -242,14 +380,10 @@ def marcar_mensagens_como_lidas(
         .all()
     )
 
-
     for mensagem in mensagens:
-
         mensagem.lida = True
 
-
     db.commit()
-
 
     return mensagens
 

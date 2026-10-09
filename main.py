@@ -1,3 +1,4 @@
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
@@ -12,6 +13,7 @@ from database import engine
 
 from chat_database import ChatBase
 from models.mensagem import Mensagem
+from models.conversa import Conversa
 
 
 app = FastAPI(title="AgroLink API")
@@ -58,4 +60,7 @@ app.include_router(chat_router)
 
 @app.get("/")
 def root():
-    return {"message": "AgroLink API funcionando!"}
+
+    return {
+        "message": "AgroLink API funcionando!"
+    }

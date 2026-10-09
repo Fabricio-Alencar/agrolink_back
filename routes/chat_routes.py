@@ -1,3 +1,4 @@
+
 from fastapi import (
     APIRouter,
     Depends,
@@ -22,6 +23,8 @@ from services.chat_service import (
     buscar_negociacao,
     usuario_tem_acesso,
     listar_conversas,
+    iniciar_conversa,
+    buscar_conversa,
     criar_mensagem,
     buscar_mensagens,
     marcar_mensagens_como_lidas,
@@ -121,40 +124,24 @@ def listar_conversas_route(
 
     usuario_id = usuario["user_id"]
 
-
-    print(
-        "👤 USUÁRIO LOGADO NO CHAT:",
-        usuario_id
-    )
-
-
-    conversas = listar_conversas(
+    return listar_conversas(
         usuario_id,
         db_chat
     )
 
 
-    print(
-        "💬 CONVERSAS FINAIS:",
-        conversas
-    )
-
-
-    return conversas
-
-
 # =========================================================
-# VERIFICAR ACESSO À NEGOCIAÇÃO
+# INICIAR CONVERSA PELO BOTÃO CONVERSAR
 # =========================================================
 
-@router.get("/acesso/{negociacao_id}")
-def verificar_acesso_negociacao(
+@router.post("/conversas/{negociacao_id}/iniciar")
+def iniciar_conversa_route(
     negociacao_id: int,
-    usuario=Depends(get_current_user)
+    usuario=Depends(get_current_user),
+    db_chat: Session = Depends(get_chat_db)
 ):
 
     usuario_id = usuario["user_id"]
-
 
     # ==========================================
     # BUSCA A NEGOCIAÇÃO
@@ -163,60 +150,6 @@ def verificar_acesso_negociacao(
     negociacao = buscar_negociacao(
         negociacao_id
     )
-
-
-    # ==========================================
-    # NEGOCIAÇÃO NÃO EXISTE
-    # ==========================================
-
-    if not negociacao:
-
-        return {
-            "permitido": False
-        }
-
-
-    # ==========================================
-    # VERIFICA SE O USUÁRIO PARTICIPA
-    # ==========================================
-
-    permitido = usuario_tem_acesso(
-        negociacao,
-        usuario_id
-    )
-
-
-    return {
-        "permitido": permitido
-    }
-
-
-# =========================================================
-# ENVIAR MENSAGEM
-# =========================================================
-
-@router.post("/mensagens")
-def enviar_mensagem(
-    dados: MensagemCriar,
-    usuario=Depends(get_current_user),
-    db: Session = Depends(get_chat_db)
-):
-
-    usuario_id = usuario["user_id"]
-
-
-    # ==========================================
-    # BUSCA A NEGOCIAÇÃO
-    # ==========================================
-
-    negociacao = buscar_negociacao(
-        dados.negociacao_id
-    )
-
-
-    # ==========================================
-    # NEGOCIAÇÃO NÃO EXISTE
-    # ==========================================
 
     if not negociacao:
 
@@ -227,7 +160,7 @@ def enviar_mensagem(
 
 
     # ==========================================
-    # VERIFICA ACESSO DO USUÁRIO
+    # VALIDA O ACESSO
     # ==========================================
 
     if not usuario_tem_acesso(
@@ -242,8 +175,107 @@ def enviar_mensagem(
 
 
     # ==========================================
-    # CRIA A MENSAGEM
+    # CRIA OU REUTILIZA A CONVERSA
     # ==========================================
+
+    conversa = iniciar_conversa(
+        db_chat,
+        negociacao_id,
+        usuario_id
+    )
+
+
+    return {
+        "conversa_id": conversa.id,
+        "negociacao_id": conversa.negociacao_id,
+        "iniciada_por_id": conversa.iniciada_por_id,
+        "data_criacao": conversa.data_criacao
+    }
+
+
+# =========================================================
+# VERIFICAR ACESSO À NEGOCIAÇÃO
+# =========================================================
+
+@router.get("/acesso/{negociacao_id}")
+def verificar_acesso_negociacao(
+    negociacao_id: int,
+    usuario=Depends(get_current_user)
+):
+
+    usuario_id = usuario["user_id"]
+
+    negociacao = buscar_negociacao(
+        negociacao_id
+    )
+
+    if not negociacao:
+
+        return {
+            "permitido": False
+        }
+
+    permitido = usuario_tem_acesso(
+        negociacao,
+        usuario_id
+    )
+
+    return {
+        "permitido": permitido
+    }
+
+
+# =========================================================
+# ENVIAR MENSAGEM VIA REST
+# =========================================================
+
+@router.post("/mensagens")
+def enviar_mensagem(
+    dados: MensagemCriar,
+    usuario=Depends(get_current_user),
+    db: Session = Depends(get_chat_db)
+):
+
+    usuario_id = usuario["user_id"]
+
+    negociacao = buscar_negociacao(
+        dados.negociacao_id
+    )
+
+    if not negociacao:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Negociação não encontrada."
+        )
+
+    if not usuario_tem_acesso(
+        negociacao,
+        usuario_id
+    ):
+
+        raise HTTPException(
+            status_code=403,
+            detail="Você não possui acesso a esta negociação."
+        )
+
+
+    # ==========================================
+    # EXIGE QUE A CONVERSA TENHA SIDO INICIADA
+    # ==========================================
+
+    conversa = buscar_conversa(
+        db,
+        dados.negociacao_id
+    )
+
+    if not conversa:
+
+        raise HTTPException(
+            status_code=409,
+            detail="Inicie a conversa pelo botão Conversar antes de enviar mensagens."
+        )
+
 
     mensagem = criar_mensagem(
         db,
@@ -251,7 +283,6 @@ def enviar_mensagem(
         usuario_id,
         dados.texto
     )
-
 
     return {
         "id": mensagem.id,
@@ -276,19 +307,9 @@ async def listar_mensagens(
 
     usuario_id = usuario["user_id"]
 
-
-    # ==========================================
-    # BUSCA A NEGOCIAÇÃO
-    # ==========================================
-
     negociacao = buscar_negociacao(
         negociacao_id
     )
-
-
-    # ==========================================
-    # NEGOCIAÇÃO NÃO EXISTE
-    # ==========================================
 
     if not negociacao:
 
@@ -296,11 +317,6 @@ async def listar_mensagens(
             status_code=404,
             detail="Negociação não encontrada."
         )
-
-
-    # ==========================================
-    # VERIFICA ACESSO DO USUÁRIO
-    # ==========================================
 
     if not usuario_tem_acesso(
         negociacao,
@@ -314,7 +330,24 @@ async def listar_mensagens(
 
 
     # ==========================================
-    # MARCA AS MENSAGENS COMO LIDAS
+    # VERIFICA SE A CONVERSA FOI INICIADA
+    # ==========================================
+
+    conversa = buscar_conversa(
+        db,
+        negociacao_id
+    )
+
+    if not conversa:
+
+        raise HTTPException(
+            status_code=404,
+            detail="Esta conversa ainda não foi iniciada."
+        )
+
+
+    # ==========================================
+    # MARCA MENSAGENS COMO LIDAS
     # ==========================================
 
     mensagens_lidas = marcar_mensagens_como_lidas(
@@ -330,40 +363,18 @@ async def listar_mensagens(
 
     if negociacao.comprador_id == usuario_id:
 
-        outro_usuario_id = (
-            negociacao.vendedor_id
-        )
+        outro_usuario_id = negociacao.vendedor_id
 
     else:
 
-        outro_usuario_id = (
-            negociacao.comprador_id
-        )
+        outro_usuario_id = negociacao.comprador_id
 
 
     # ==========================================
-    # ENVIA NOTIFICAÇÃO DE LEITURA
+    # NOTIFICA SOBRE A LEITURA
     # ==========================================
 
     if mensagens_lidas:
-
-        print(
-            "👁️ MENSAGENS MARCADAS COMO LIDAS:",
-            negociacao_id
-        )
-
-
-        print(
-            "👤 USUÁRIO QUE LEU:",
-            usuario_id
-        )
-
-
-        print(
-            "📨 NOTIFICANDO USUÁRIO:",
-            outro_usuario_id
-        )
-
 
         notificacao = {
             "tipo": "mensagens_lidas",
@@ -375,16 +386,11 @@ async def listar_mensagens(
             ]
         }
 
-
-        # ==========================================
-        # VERIFICA SE O OUTRO USUÁRIO ESTÁ CONECTADO
-        # ==========================================
-
         if outro_usuario_id in conexoes_usuarios:
 
-            for conexao_usuario in conexoes_usuarios[
-                outro_usuario_id
-            ]:
+            for conexao_usuario in list(
+                conexoes_usuarios[outro_usuario_id]
+            ):
 
                 try:
 
@@ -392,24 +398,22 @@ async def listar_mensagens(
                         notificacao
                     )
 
-
                 except Exception as erro:
 
                     print(
-                        "❌ ERRO AO ENVIAR NOTIFICAÇÃO DE LEITURA:",
+                        "Erro ao notificar leitura:",
                         erro
                     )
 
 
     # ==========================================
-    # BUSCA AS MENSAGENS
+    # RETORNA AS MENSAGENS
     # ==========================================
 
     mensagens = buscar_mensagens(
         db,
         negociacao_id
     )
-
 
     return [
         {
@@ -433,25 +437,11 @@ async def websocket_usuario(
     websocket: WebSocket
 ):
 
-    print(
-        "🟢 WEBSOCKET GERAL CHEGOU NO BACKEND!"
-    )
-
-
-    # ==========================================
-    # AUTENTICA USUÁRIO
-    # ==========================================
-
     usuario = autenticar_websocket(
         websocket
     )
 
-
     if not usuario:
-
-        print(
-            "🔴 WEBSOCKET GERAL NÃO AUTENTICADO!"
-        )
 
         await websocket.close(
             code=1008
@@ -459,40 +449,16 @@ async def websocket_usuario(
 
         return
 
-
     usuario_id = usuario["user_id"]
-
-
-    print(
-        "👤 USUÁRIO CONECTADO AO WEBSOCKET GERAL:",
-        usuario_id
-    )
-
-
-    # ==========================================
-    # ACEITA A CONEXÃO
-    # ==========================================
 
     await websocket.accept()
 
-
-    # ==========================================
-    # CRIA LISTA DO USUÁRIO
-    # ==========================================
-
     if usuario_id not in conexoes_usuarios:
-
         conexoes_usuarios[usuario_id] = []
-
-
-    # ==========================================
-    # ADICIONA CONEXÃO
-    # ==========================================
 
     conexoes_usuarios[usuario_id].append(
         websocket
     )
-
 
     try:
 
@@ -503,45 +469,28 @@ async def websocket_usuario(
             }
         )
 
-
-        # ==========================================
-        # MANTÉM CONEXÃO ABERTA
-        # ==========================================
-
         while True:
 
             await websocket.receive_text()
 
-
     except WebSocketDisconnect:
 
         print(
-            "🔌 WEBSOCKET GERAL DESCONECTADO:",
+            "WebSocket geral desconectado:",
             usuario_id
         )
 
-
     finally:
-
-        # ==========================================
-        # REMOVE CONEXÃO
-        # ==========================================
 
         if usuario_id in conexoes_usuarios:
 
             conexoes_usuarios[usuario_id] = [
                 conexao
                 for conexao in conexoes_usuarios[usuario_id]
-                if conexao != websocket
+                if conexao is not websocket
             ]
 
-
-            # ======================================
-            # REMOVE USUÁRIO SE NÃO POSSUI CONEXÕES
-            # ======================================
-
             if not conexoes_usuarios[usuario_id]:
-
                 del conexoes_usuarios[usuario_id]
 
 
@@ -555,17 +504,9 @@ async def chat_websocket(
     negociacao_id: int
 ):
 
-    print(
-        "🟢 WEBSOCKET CHEGOU NO BACKEND!",
-        "negociação =",
-        negociacao_id
-    )
-
-
     usuario = autenticar_websocket(
         websocket
     )
-
 
     if not usuario:
 
@@ -575,18 +516,11 @@ async def chat_websocket(
 
         return
 
-
     remetente_id = usuario["user_id"]
-
-
-    # ==========================================
-    # BUSCA A NEGOCIAÇÃO
-    # ==========================================
 
     negociacao = buscar_negociacao(
         negociacao_id
     )
-
 
     if not negociacao:
 
@@ -595,11 +529,6 @@ async def chat_websocket(
         )
 
         return
-
-
-    # ==========================================
-    # VERIFICA ACESSO DO USUÁRIO
-    # ==========================================
 
     if not usuario_tem_acesso(
         negociacao,
@@ -613,13 +542,36 @@ async def chat_websocket(
         return
 
 
+    # ==========================================
+    # SÓ PERMITE CONECTAR A UMA CONVERSA INICIADA
+    # ==========================================
+
+    db = SessionChat()
+
+    conversa = buscar_conversa(
+        db,
+        negociacao_id
+    )
+
+    if not conversa:
+
+        db.close()
+
+        await websocket.close(
+            code=1008
+        )
+
+        return
+
+
+    # ==========================================
+    # ACEITA E REGISTRA A CONEXÃO
+    # ==========================================
+
     await websocket.accept()
 
-
     if negociacao_id not in conexoes_chat:
-
         conexoes_chat[negociacao_id] = []
-
 
     conexoes_chat[negociacao_id].append(
         (
@@ -628,72 +580,42 @@ async def chat_websocket(
         )
     )
 
-
-    db = SessionChat()
-
-
     try:
 
-        try:
+        while True:
 
-            while True:
+            texto = await websocket.receive_text()
 
-                texto = await websocket.receive_text()
+            # ======================================
+            # SALVA A MENSAGEM
+            # ======================================
 
+            mensagem = criar_mensagem(
+                db,
+                negociacao_id,
+                remetente_id,
+                texto
+            )
 
-                print(
-                    "📩 MENSAGEM RECEBIDA PELO BACKEND:"
-                )
-
-
-                print(
-                    texto
-                )
-
-
-                mensagem = criar_mensagem(
-                    db,
-                    negociacao_id,
-                    remetente_id,
-                    texto
-                )
-
-
-                print(
-                    "💾 MENSAGEM SALVA NO BANCO:"
-                )
+            mensagem_json = {
+                "id": mensagem.id,
+                "negociacao_id": mensagem.negociacao_id,
+                "remetente_id": mensagem.remetente_id,
+                "texto": mensagem.texto,
+                "data_envio": mensagem.data_envio.isoformat(),
+                "lida": mensagem.lida
+            }
 
 
-                print(
-                    mensagem.id
-                )
+            # ======================================
+            # ENVIA PARA AS CONEXÕES DO CHAT
+            # ======================================
 
+            for usuario_id, conexao in list(
+                conexoes_chat.get(negociacao_id, [])
+            ):
 
-                # ==========================================
-                # ENVIA A MENSAGEM PARA AS CONEXÕES DO CHAT
-                # ==========================================
-
-                for usuario_id, conexao in conexoes_chat[negociacao_id]:
-
-                    print(
-                        "📤 ENVIANDO MENSAGEM PARA:",
-                        usuario_id
-                    )
-
-
-                    mensagem_json = {
-                        "id": mensagem.id,
-                        "negociacao_id": mensagem.negociacao_id,
-                        "remetente_id": mensagem.remetente_id,
-                        "texto": mensagem.texto,
-                        "data_envio": mensagem.data_envio.isoformat(),
-                        "lida": mensagem.lida
-                    }
-
-
-                    # ==========================================
-                    # ENVIA PARA O PRÓPRIO REMETENTE
-                    # ==========================================
+                try:
 
                     if usuario_id == remetente_id:
 
@@ -704,87 +626,90 @@ async def chat_websocket(
                             }
                         )
 
-
-                    # ==========================================
-                    # ENVIA PARA O OUTRO USUÁRIO
-                    # ==========================================
-
                     else:
 
                         await conexao.send_json(
                             mensagem_json
                         )
 
-
-                # ==========================================
-                # IDENTIFICA O OUTRO PARTICIPANTE
-                # ==========================================
-
-                if negociacao.comprador_id == remetente_id:
-
-                    outro_usuario_id = (
-                        negociacao.vendedor_id
-                    )
-
-                else:
-
-                    outro_usuario_id = (
-                        negociacao.comprador_id
-                    )
-
-
-                # ==========================================
-                # ENVIA NOTIFICAÇÃO PELO WEBSOCKET GERAL
-                # ==========================================
-
-                if outro_usuario_id in conexoes_usuarios:
+                except Exception as erro:
 
                     print(
-                        "🔔 ENVIANDO NOTIFICAÇÃO PARA USUÁRIO:",
-                        outro_usuario_id
+                        "Erro ao enviar mensagem pelo WebSocket:",
+                        erro
                     )
 
 
-                    notificacao = {
-                        "tipo": "nova_mensagem",
-                        "negociacao_id": negociacao_id,
-                        "remetente_id": remetente_id,
-                        "texto": mensagem.texto,
-                        "data_envio": mensagem.data_envio.isoformat(),
-                        "lida": False
-                    }
+            # ======================================
+            # IDENTIFICA O OUTRO PARTICIPANTE
+            # ======================================
+
+            if negociacao.comprador_id == remetente_id:
+
+                outro_usuario_id = negociacao.vendedor_id
+
+            else:
+
+                outro_usuario_id = negociacao.comprador_id
 
 
-                    for conexao_usuario in conexoes_usuarios[
-                        outro_usuario_id
-                    ]:
+            # ======================================
+            # NOTIFICA O OUTRO USUÁRIO
+            # ======================================
 
-                        try:
+            if outro_usuario_id in conexoes_usuarios:
 
-                            await conexao_usuario.send_json(
-                                notificacao
-                            )
+                notificacao = {
+                    "tipo": "nova_mensagem",
+                    "negociacao_id": negociacao_id,
+                    "remetente_id": remetente_id,
+                    "texto": mensagem.texto,
+                    "data_envio": mensagem.data_envio.isoformat(),
+                    "lida": False
+                }
 
-                        except Exception as erro:
+                for conexao_usuario in list(
+                    conexoes_usuarios[outro_usuario_id]
+                ):
 
-                            print(
-                                "❌ Erro ao enviar notificação:",
-                                erro
-                            )
+                    try:
+
+                        await conexao_usuario.send_json(
+                            notificacao
+                        )
+
+                    except Exception as erro:
+
+                        print(
+                            "Erro ao enviar notificação:",
+                            erro
+                        )
 
 
-        except WebSocketDisconnect:
+    except WebSocketDisconnect:
 
-            pass
-
+        print(
+            "WebSocket do chat desconectado:",
+            negociacao_id,
+            remetente_id
+        )
 
     finally:
 
         db.close()
 
+        # ======================================
+        # REMOVE SOMENTE ESTA CONEXÃO
+        # ======================================
 
-        conexoes_chat[negociacao_id] = [
-            conexao
-            for conexao in conexoes_chat[negociacao_id]
-            if conexao[0] != remetente_id
-        ]
+        if negociacao_id in conexoes_chat:
+
+            conexoes_chat[negociacao_id] = [
+                (usuario_id, conexao)
+                for usuario_id, conexao
+                in conexoes_chat[negociacao_id]
+                if conexao is not websocket
+            ]
+
+            if not conexoes_chat[negociacao_id]:
+                del conexoes_chat[negociacao_id]
