@@ -46,7 +46,9 @@ def produtos(usuario_logado=Depends(get_current_user)):
                 "produtor_nome": p["produtor_nome"],
                 "produtor_estado": p["produtor_estado"],
                 "produtor_cidade": p["produtor_cidade"],
-                "produtor_avaliacao": p["produtor_avaliacao"]
+                "produtor_id": p.get("produtor_id"),
+                "produtor_avaliacao": p.get("produtor_avaliacao"),
+                "produtor_total_avaliacoes": p.get("produtor_total_avaliacoes", 0)
             }
             for p in produtos
         ]

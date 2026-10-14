@@ -7,6 +7,7 @@ from database import SessionLocal
 from models.produto import Produto
 from models.negociacao import Negociacao
 from services.cache_service import redis_client
+from services.avaliacoes_service import resumo_avaliacoes
 
 CACHE_KEY = "marketplace"
 CACHE_TTL = 60
@@ -43,6 +44,9 @@ def listar_produtos():
         tempo_postgres = (fim_postgres - inicio_postgres) * 1000
         print(f"Tempo da busca no PostgreSQL: {tempo_postgres:.2f} ms")
 
+        # Média e quantidade de avaliações de cada produtor (uma consulta só)
+        avaliacoes = resumo_avaliacoes(db, [p.produtor_id for p in produtos])
+
         dados_produtos = [
             {
                 "id": p.id,
@@ -57,7 +61,10 @@ def listar_produtos():
                 "produtor_nome": p.produtor.nome,
                 "produtor_estado": p.produtor.estado,
                 "produtor_cidade": p.produtor.cidade,
-                "produtor_avaliacao": p.produtor.avaliacao or 5.0
+                "produtor_id": p.produtor_id,
+                # None = produtor ainda sem avaliações
+                "produtor_avaliacao": avaliacoes.get(p.produtor_id, {}).get("media"),
+                "produtor_total_avaliacoes": avaliacoes.get(p.produtor_id, {}).get("total", 0)
             }
             for p in produtos
         ]
