@@ -59,6 +59,14 @@ class Negociacao(Base):
         default=datetime.utcnow
     )
 
+    # Última mudança de status, confirmação ou avaliação.
+    # A lista de pedidos é ordenada por ela (mais recente em cima).
+    # Pedidos antigos ficam com NULL e usam data_criacao no lugar.
+    data_atualizacao = Column(
+        DateTime,
+        default=datetime.utcnow
+    )
+
     # =========================
     # RELACIONAMENTOS
     # =========================

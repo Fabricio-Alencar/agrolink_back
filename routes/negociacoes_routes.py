@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from services import negociacoes_service
+from services import negociacoes_service, avaliacoes_service
+from database import SessionLocal
 from services.azure_storage_service import (
     gerar_url_sas,
     CONTAINER_PRODUTOS
@@ -9,6 +10,56 @@ from auth.dependencies import get_current_user
 
 
 router = APIRouter(tags=["Negociações"])
+
+
+# =========================
+# CAMPOS PARA ACOMPANHAR O PEDIDO E A AVALIAÇÃO
+# =========================
+def dados_de_avaliacao(negociacoes):
+    """Busca de uma vez as avaliações dos pedidos e a média dos produtores."""
+    db = SessionLocal()
+
+    try:
+        avaliacoes = avaliacoes_service.avaliacoes_das_negociacoes(
+            db, [n.id for n in negociacoes]
+        )
+        resumos = avaliacoes_service.resumo_avaliacoes(
+            db, [n.vendedor_id for n in negociacoes]
+        )
+    finally:
+        db.close()
+
+    return avaliacoes, resumos
+
+
+def campos_de_acompanhamento(negociacao, avaliacoes, resumos):
+    """Campos usados pelo front na linha do tempo e no modal de avaliação."""
+    resumo = resumos.get(negociacao.vendedor_id, {})
+
+    return {
+        "data_criacao": (
+            negociacao.data_criacao.isoformat()
+            if negociacao.data_criacao
+            else None
+        ),
+        "data_atualizacao": (
+            negociacao.data_atualizacao.isoformat()
+            if negociacao.data_atualizacao
+            else None
+        ),
+        "entrega_confirmada": bool(negociacao.entrega_confirmada),
+        "recebimento_confirmado": bool(negociacao.recebimento_confirmado),
+
+        # Produtor do pedido (para abrir o perfil público dele)
+        "produtor_id": negociacao.vendedor_id,
+        "produtor_avaliacao": resumo.get("media"),  # None = sem avaliações
+        "produtor_total_avaliacoes": resumo.get("total", 0),
+
+        # None = pedido ainda não avaliado
+        "avaliacao": avaliacoes_service.avaliacao_para_json(
+            avaliacoes.get(negociacao.id)
+        ),
+    }
 
 
 # =========================
@@ -89,6 +140,11 @@ def buscar_negociacao_detalhes(
         "descricao": negociacao.descricao,
 
         "status": negociacao.status,
+
+        **campos_de_acompanhamento(
+            negociacao,
+            *dados_de_avaliacao([negociacao])
+        ),
 
         # =========================
         # PRODUTO
@@ -187,6 +243,8 @@ def listar_negociacoes(
 
         lista_final = []
 
+        avaliacoes, resumos = dados_de_avaliacao(negociacoes)
+
         for p in negociacoes:
 
             if tipo_de_negociante.lower() == "produtor":
@@ -212,6 +270,8 @@ def listar_negociacoes(
                 "descricao": p.descricao,
 
                 "status": p.status,
+
+                **campos_de_acompanhamento(p, avaliacoes, resumos),
 
                 "produto_nome": p.produto.nome,
 
@@ -309,7 +369,8 @@ def alterar_status(
     resultado, codigo_http = (
         negociacoes_service.atualizar_status_negociacao(
             id,
-            novo_status
+            novo_status,
+            usuario_logado["user_id"]
         )
     )
 
@@ -352,7 +413,8 @@ def confirmar_acao(
     resultado, codigo_http = (
         negociacoes_service.registrar_confirmacao_service(
             id,
-            acao
+            acao,
+            usuario_logado["user_id"]
         )
     )
 
