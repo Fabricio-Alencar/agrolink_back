@@ -1,10 +1,10 @@
-
 from fastapi import (
     APIRouter,
     Depends,
     WebSocket,
     WebSocketDisconnect,
-    HTTPException
+    HTTPException,
+    Query
 )
 
 from auth.security import decodificar_token
@@ -56,34 +56,36 @@ conexoes_usuarios = {}
 # AUTENTICAR WEBSOCKET
 # =========================================================
 
-def autenticar_websocket(websocket):
-
-    access_token = websocket.cookies.get("access_token")
+def autenticar_websocket(websocket: WebSocket, token: str = None):
+    access_token = token or websocket.cookies.get("access_token")
 
     if not access_token:
+        print("❌ [Auth WS] Nenhum token encontrado na query nem nos cookies.")
         return None
 
     try:
-
         payload = decodificar_token(access_token)
 
         user_id = payload.get("sub")
         tipo = payload.get("tipo")
 
         if not user_id or not tipo:
+            print("❌ [Auth WS] Payload do token inválido (sub ou tipo ausentes).")
             return None
 
         db = SessionLocal()
 
         try:
-
             usuario = db.get(
                 Usuario,
                 int(user_id)
             )
 
             if not usuario:
+                print(f"❌ [Auth WS] Usuário ID {user_id} não encontrado no banco de dados.")
                 return None
+
+            print(f"✅ [Auth WS] Usuário autenticado com sucesso: ID {usuario.id} ({usuario.nome})")
 
             return {
                 "user_id": usuario.id,
@@ -92,11 +94,10 @@ def autenticar_websocket(websocket):
             }
 
         finally:
-
             db.close()
 
-    except Exception:
-
+    except Exception as e:
+        print(f"❌ [Auth WS] Erro ao decodificar token ou buscar usuário: {e}")
         return None
 
 
@@ -158,7 +159,6 @@ def iniciar_conversa_route(
             detail="Negociação não encontrada."
         )
 
-
     # ==========================================
     # VALIDA O ACESSO
     # ==========================================
@@ -173,7 +173,6 @@ def iniciar_conversa_route(
             detail="Você não possui acesso a esta negociação."
         )
 
-
     # ==========================================
     # CRIA OU REUTILIZA A CONVERSA
     # ==========================================
@@ -183,7 +182,6 @@ def iniciar_conversa_route(
         negociacao_id,
         usuario_id
     )
-
 
     return {
         "conversa_id": conversa.id,
@@ -259,7 +257,6 @@ def enviar_mensagem(
             detail="Você não possui acesso a esta negociação."
         )
 
-
     # ==========================================
     # EXIGE QUE A CONVERSA TENHA SIDO INICIADA
     # ==========================================
@@ -275,7 +272,6 @@ def enviar_mensagem(
             status_code=409,
             detail="Inicie a conversa pelo botão Conversar antes de enviar mensagens."
         )
-
 
     mensagem = criar_mensagem(
         db,
@@ -328,7 +324,6 @@ async def listar_mensagens(
             detail="Você não possui acesso a esta negociação."
         )
 
-
     # ==========================================
     # VERIFICA SE A CONVERSA FOI INICIADA
     # ==========================================
@@ -345,7 +340,6 @@ async def listar_mensagens(
             detail="Esta conversa ainda não foi iniciada."
         )
 
-
     # ==========================================
     # MARCA MENSAGENS COMO LIDAS
     # ==========================================
@@ -355,7 +349,6 @@ async def listar_mensagens(
         negociacao_id,
         usuario_id
     )
-
 
     # ==========================================
     # IDENTIFICA O OUTRO PARTICIPANTE
@@ -368,7 +361,6 @@ async def listar_mensagens(
     else:
 
         outro_usuario_id = negociacao.comprador_id
-
 
     # ==========================================
     # NOTIFICA SOBRE A LEITURA
@@ -401,10 +393,9 @@ async def listar_mensagens(
                 except Exception as erro:
 
                     print(
-                        "Erro ao notificar leitura:",
+                        f"❌ [REST Listar Mensagens] Erro ao notificar leitura para usuário {outro_usuario_id}:",
                         erro
                     )
-
 
     # ==========================================
     # RETORNA AS MENSAGENS
@@ -434,24 +425,27 @@ async def listar_mensagens(
 
 @router.websocket("/ws")
 async def websocket_usuario(
-    websocket: WebSocket
+    websocket: WebSocket,
+    token: str = Query(None)
 ):
+    print("🔵 [WS Geral] Tentativa de conexão recebida...")
 
     usuario = autenticar_websocket(
-        websocket
+        websocket,
+        token
     )
 
     if not usuario:
-
+        print("❌ [WS Geral] Falha de autenticação. Fechando conexão com código 1008.")
         await websocket.close(
             code=1008
         )
-
         return
 
     usuario_id = usuario["user_id"]
 
     await websocket.accept()
+    print(f"✅ [WS Geral] Conexão aceita para o usuário ID: {usuario_id} ({usuario['nome'])})")
 
     if usuario_id not in conexoes_usuarios:
         conexoes_usuarios[usuario_id] = []
@@ -476,8 +470,7 @@ async def websocket_usuario(
     except WebSocketDisconnect:
 
         print(
-            "WebSocket geral desconectado:",
-            usuario_id
+            f"🔌 [WS Geral] WebSocket geral desconectado para o usuário ID: {usuario_id}"
         )
 
     finally:
@@ -492,6 +485,7 @@ async def websocket_usuario(
 
             if not conexoes_usuarios[usuario_id]:
                 del conexoes_usuarios[usuario_id]
+                print(f"🗑️ [WS Geral] Todas as conexões do usuário {usuario_id} foram limpas.")
 
 
 # =========================================================
@@ -501,19 +495,21 @@ async def websocket_usuario(
 @router.websocket("/ws/{negociacao_id}")
 async def chat_websocket(
     websocket: WebSocket,
-    negociacao_id: int
+    negociacao_id: int,
+    token: str = Query(None)
 ):
+    print(f"🔵 [WS Chat] Tentativa de conexão na negociação ID: {negociacao_id}...")
 
     usuario = autenticar_websocket(
-        websocket
+        websocket,
+        token
     )
 
     if not usuario:
-
+        print("❌ [WS Chat] Falha de autenticação. Fechando conexão com código 1008.")
         await websocket.close(
             code=1008
         )
-
         return
 
     remetente_id = usuario["user_id"]
@@ -523,24 +519,21 @@ async def chat_websocket(
     )
 
     if not negociacao:
-
+        print(f"❌ [WS Chat] Negociação {negociacao_id} não encontrada. Fechando conexão.")
         await websocket.close(
             code=1008
         )
-
         return
 
     if not usuario_tem_acesso(
         negociacao,
         remetente_id
     ):
-
+        print(f"❌ [WS Chat] Usuário {remetente_id} não tem acesso à negociação {negociacao_id}. Fechando conexão.")
         await websocket.close(
             code=1008
         )
-
         return
-
 
     # ==========================================
     # SÓ PERMITE CONECTAR A UMA CONVERSA INICIADA
@@ -554,7 +547,7 @@ async def chat_websocket(
     )
 
     if not conversa:
-
+        print(f"❌ [WS Chat] Conversa da negociação {negociacao_id} ainda não foi iniciada. Fechando conexão.")
         db.close()
 
         await websocket.close(
@@ -563,12 +556,12 @@ async def chat_websocket(
 
         return
 
-
     # ==========================================
     # ACEITA E REGISTRA A CONEXÃO
     # ==========================================
 
     await websocket.accept()
+    print(f"✅ [WS Chat] Conexão aceita! Usuário {remetente_id} conectado na negociação {negociacao_id}")
 
     if negociacao_id not in conexoes_chat:
         conexoes_chat[negociacao_id] = []
@@ -585,6 +578,7 @@ async def chat_websocket(
         while True:
 
             texto = await websocket.receive_text()
+            print(f"📩 [WS Chat] Mensagem recebida na negociação {negociacao_id} do usuário {remetente_id}: '{texto}'")
 
             # ======================================
             # SALVA A MENSAGEM
@@ -597,6 +591,45 @@ async def chat_websocket(
                 texto
             )
 
+            # ======================================
+            # IDENTIFICA O OUTRO PARTICIPANTE
+            # ======================================
+
+            if negociacao.comprador_id == remetente_id:
+
+                outro_usuario_id = negociacao.vendedor_id
+
+            else:
+
+                outro_usuario_id = negociacao.comprador_id
+
+            # ======================================
+            # VERIFICA SE O DESTINATÁRIO ESTÁ
+            # COM A CONVERSA ABERTA
+            # ======================================
+
+            destinatario_no_chat = any(
+                usuario_id == outro_usuario_id
+                for usuario_id, conexao in
+                conexoes_chat.get(negociacao_id, [])
+            )
+
+            # ======================================
+            # MARCA COMO LIDA SE O DESTINATÁRIO
+            # ESTIVER CONECTADO À CONVERSA
+            # ======================================
+
+            if destinatario_no_chat:
+                print(f"👀 [WS Chat] Destinatário {outro_usuario_id} está na sala. Marcando mensagem {mensagem.id} como lida.")
+                mensagem.lida = True
+
+                db.commit()
+                db.refresh(mensagem)
+
+            # ======================================
+            # MONTA OS DADOS ATUALIZADOS DA MENSAGEM
+            # ======================================
+
             mensagem_json = {
                 "id": mensagem.id,
                 "negociacao_id": mensagem.negociacao_id,
@@ -605,7 +638,6 @@ async def chat_websocket(
                 "data_envio": mensagem.data_envio.isoformat(),
                 "lida": mensagem.lida
             }
-
 
             # ======================================
             # ENVIA PARA AS CONEXÕES DO CHAT
@@ -635,23 +667,9 @@ async def chat_websocket(
                 except Exception as erro:
 
                     print(
-                        "Erro ao enviar mensagem pelo WebSocket:",
+                        f"❌ [WS Chat] Erro ao enviar mensagem para usuário {usuario_id}:",
                         erro
                     )
-
-
-            # ======================================
-            # IDENTIFICA O OUTRO PARTICIPANTE
-            # ======================================
-
-            if negociacao.comprador_id == remetente_id:
-
-                outro_usuario_id = negociacao.vendedor_id
-
-            else:
-
-                outro_usuario_id = negociacao.comprador_id
-
 
             # ======================================
             # NOTIFICA O OUTRO USUÁRIO
@@ -665,7 +683,7 @@ async def chat_websocket(
                     "remetente_id": remetente_id,
                     "texto": mensagem.texto,
                     "data_envio": mensagem.data_envio.isoformat(),
-                    "lida": False
+                    "lida": mensagem.lida
                 }
 
                 for conexao_usuario in list(
@@ -681,17 +699,46 @@ async def chat_websocket(
                     except Exception as erro:
 
                         print(
-                            "Erro ao enviar notificação:",
+                            f"❌ [WS Chat] Erro ao enviar notificação geral para usuário {outro_usuario_id}:",
                             erro
                         )
 
+            # ======================================
+            # NOTIFICA O REMETENTE SOBRE A LEITURA
+            # ======================================
+
+            if destinatario_no_chat:
+
+                notificacao_leitura = {
+                    "tipo": "mensagens_lidas",
+                    "negociacao_id": negociacao_id,
+                    "leitor_id": outro_usuario_id,
+                    "mensagem_ids": [mensagem.id]
+                }
+
+                if remetente_id in conexoes_usuarios:
+
+                    for conexao_usuario in list(
+                        conexoes_usuarios[remetente_id]
+                    ):
+
+                        try:
+
+                            await conexao_usuario.send_json(
+                                notificacao_leitura
+                            )
+
+                        except Exception as erro:
+
+                            print(
+                                f"❌ [WS Chat] Erro ao notificar leitura para remetente {remetente_id}:",
+                                erro
+                            )
 
     except WebSocketDisconnect:
 
         print(
-            "WebSocket do chat desconectado:",
-            negociacao_id,
-            remetente_id
+            f"🔌 [WS Chat] WebSocket do chat desconectado. Negociação: {negociacao_id}, Usuário: {remetente_id}"
         )
 
     finally:
@@ -713,3 +760,4 @@ async def chat_websocket(
 
             if not conexoes_chat[negociacao_id]:
                 del conexoes_chat[negociacao_id]
+                print(f"🗑️ [WS Chat] Sala da negociação {negociacao_id} esvaziada e removida da memória.")

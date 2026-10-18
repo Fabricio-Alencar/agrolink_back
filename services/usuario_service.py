@@ -78,7 +78,7 @@ def criar_usuario(data):
             cidade=cidade,
             senha=senha_hash,
             tipo=tipo,
-            avaliacao=5.0
+            avaliacao=None  # sem avaliações até receber a primeira
         )
 
         db.add(usuario)

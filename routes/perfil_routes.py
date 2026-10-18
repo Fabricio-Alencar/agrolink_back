@@ -7,9 +7,31 @@ from services.azure_storage_service import (
     CONTAINER_USUARIOS
 )
 from auth.dependencies import get_current_user
+from services.avaliacoes_service import resumo_avaliacoes
+from database import SessionLocal
 
 
 router = APIRouter(tags=["Perfil"])
+
+
+# =========================
+# MÉDIA DE AVALIAÇÕES DO PRODUTOR
+# =========================
+def resumo_do_produtor(usuario):
+    if usuario.tipo != "produtor":
+        return {}
+
+    db = SessionLocal()
+
+    try:
+        resumo = resumo_avaliacoes(db, [usuario.id]).get(usuario.id, {})
+    finally:
+        db.close()
+
+    return {
+        "media_avaliacoes": resumo.get("media"),
+        "total_avaliacoes": resumo.get("total", 0)
+    }
 
 
 # =========================
@@ -48,7 +70,11 @@ def obter_perfil(usuario_logado=Depends(get_current_user)):
             "cidade": usuario.cidade,
             "estado": usuario.estado,
             "foto_perfil": foto_perfil,
-            "tipo": usuario.tipo
+            "tipo": usuario.tipo,
+            "id": usuario.id,
+
+            # Produtor vê a própria média no perfil (None = sem avaliações)
+            **resumo_do_produtor(usuario)
         }
 
     except Exception as e:

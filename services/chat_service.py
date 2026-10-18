@@ -249,10 +249,16 @@ def listar_conversas(
                 {
                     "conversa_id": conversa.id,
                     "negociacao_id": negociacao.id,
+                    "status_negociacao": negociacao.status,
+                    "arquivada": (
+                        str(negociacao.status).lower()
+                        in ("finalizado", "cancelado")
+                    ),
                     "usuario_id": outro_usuario.id,
                     "nome": outro_usuario.nome,
                     "tipo": outro_usuario.tipo,
                     "foto_perfil": foto_perfil,
+
 
                     "produto": (
                         negociacao.produto.nome
