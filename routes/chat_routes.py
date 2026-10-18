@@ -158,7 +158,6 @@ def iniciar_conversa_route(
             detail="Negociação não encontrada."
         )
 
-
     # ==========================================
     # VALIDA O ACESSO
     # ==========================================
@@ -173,7 +172,6 @@ def iniciar_conversa_route(
             detail="Você não possui acesso a esta negociação."
         )
 
-
     # ==========================================
     # CRIA OU REUTILIZA A CONVERSA
     # ==========================================
@@ -183,7 +181,6 @@ def iniciar_conversa_route(
         negociacao_id,
         usuario_id
     )
-
 
     return {
         "conversa_id": conversa.id,
@@ -259,7 +256,6 @@ def enviar_mensagem(
             detail="Você não possui acesso a esta negociação."
         )
 
-
     # ==========================================
     # EXIGE QUE A CONVERSA TENHA SIDO INICIADA
     # ==========================================
@@ -275,7 +271,6 @@ def enviar_mensagem(
             status_code=409,
             detail="Inicie a conversa pelo botão Conversar antes de enviar mensagens."
         )
-
 
     mensagem = criar_mensagem(
         db,
@@ -328,7 +323,6 @@ async def listar_mensagens(
             detail="Você não possui acesso a esta negociação."
         )
 
-
     # ==========================================
     # VERIFICA SE A CONVERSA FOI INICIADA
     # ==========================================
@@ -345,7 +339,6 @@ async def listar_mensagens(
             detail="Esta conversa ainda não foi iniciada."
         )
 
-
     # ==========================================
     # MARCA MENSAGENS COMO LIDAS
     # ==========================================
@@ -355,7 +348,6 @@ async def listar_mensagens(
         negociacao_id,
         usuario_id
     )
-
 
     # ==========================================
     # IDENTIFICA O OUTRO PARTICIPANTE
@@ -368,7 +360,6 @@ async def listar_mensagens(
     else:
 
         outro_usuario_id = negociacao.comprador_id
-
 
     # ==========================================
     # NOTIFICA SOBRE A LEITURA
@@ -404,7 +395,6 @@ async def listar_mensagens(
                         "Erro ao notificar leitura:",
                         erro
                     )
-
 
     # ==========================================
     # RETORNA AS MENSAGENS
@@ -541,7 +531,6 @@ async def chat_websocket(
 
         return
 
-
     # ==========================================
     # SÓ PERMITE CONECTAR A UMA CONVERSA INICIADA
     # ==========================================
@@ -562,7 +551,6 @@ async def chat_websocket(
         )
 
         return
-
 
     # ==========================================
     # ACEITA E REGISTRA A CONEXÃO
@@ -597,6 +585,45 @@ async def chat_websocket(
                 texto
             )
 
+            # ======================================
+            # IDENTIFICA O OUTRO PARTICIPANTE
+            # ======================================
+
+            if negociacao.comprador_id == remetente_id:
+
+                outro_usuario_id = negociacao.vendedor_id
+
+            else:
+
+                outro_usuario_id = negociacao.comprador_id
+
+            # ======================================
+            # VERIFICA SE O DESTINATÁRIO ESTÁ
+            # COM A CONVERSA ABERTA
+            # ======================================
+
+            destinatario_no_chat = any(
+                usuario_id == outro_usuario_id
+                for usuario_id, conexao in
+                conexoes_chat.get(negociacao_id, [])
+            )
+
+            # ======================================
+            # MARCA COMO LIDA SE O DESTINATÁRIO
+            # ESTIVER CONECTADO À CONVERSA
+            # ======================================
+
+            if destinatario_no_chat:
+
+                mensagem.lida = True
+
+                db.commit()
+                db.refresh(mensagem)
+
+            # ======================================
+            # MONTA OS DADOS ATUALIZADOS DA MENSAGEM
+            # ======================================
+
             mensagem_json = {
                 "id": mensagem.id,
                 "negociacao_id": mensagem.negociacao_id,
@@ -605,7 +632,6 @@ async def chat_websocket(
                 "data_envio": mensagem.data_envio.isoformat(),
                 "lida": mensagem.lida
             }
-
 
             # ======================================
             # ENVIA PARA AS CONEXÕES DO CHAT
@@ -639,20 +665,6 @@ async def chat_websocket(
                         erro
                     )
 
-
-            # ======================================
-            # IDENTIFICA O OUTRO PARTICIPANTE
-            # ======================================
-
-            if negociacao.comprador_id == remetente_id:
-
-                outro_usuario_id = negociacao.vendedor_id
-
-            else:
-
-                outro_usuario_id = negociacao.comprador_id
-
-
             # ======================================
             # NOTIFICA O OUTRO USUÁRIO
             # ======================================
@@ -665,7 +677,7 @@ async def chat_websocket(
                     "remetente_id": remetente_id,
                     "texto": mensagem.texto,
                     "data_envio": mensagem.data_envio.isoformat(),
-                    "lida": False
+                    "lida": mensagem.lida
                 }
 
                 for conexao_usuario in list(
@@ -685,6 +697,37 @@ async def chat_websocket(
                             erro
                         )
 
+            # ======================================
+            # NOTIFICA O REMETENTE SOBRE A LEITURA
+            # ======================================
+
+            if destinatario_no_chat:
+
+                notificacao_leitura = {
+                    "tipo": "mensagens_lidas",
+                    "negociacao_id": negociacao_id,
+                    "leitor_id": outro_usuario_id,
+                    "mensagem_ids": [mensagem.id]
+                }
+
+                if remetente_id in conexoes_usuarios:
+
+                    for conexao_usuario in list(
+                        conexoes_usuarios[remetente_id]
+                    ):
+
+                        try:
+
+                            await conexao_usuario.send_json(
+                                notificacao_leitura
+                            )
+
+                        except Exception as erro:
+
+                            print(
+                                "Erro ao notificar leitura:",
+                                erro
+                            )
 
     except WebSocketDisconnect:
 
