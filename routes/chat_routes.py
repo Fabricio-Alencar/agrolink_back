@@ -491,6 +491,11 @@ async def chat_websocket(
     websocket: WebSocket,
     negociacao_id: int
 ):
+    print(
+        f"[TESTE WS CONVERSA] Rota acessada: "
+        f"negociacao_id={negociacao_id}",
+        flush=True
+    )
 
     print(
         f"[WS CHAT] Tentativa: negociação={negociacao_id}; "
