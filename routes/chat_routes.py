@@ -445,8 +445,7 @@ async def websocket_usuario(
     usuario_id = usuario["user_id"]
 
     await websocket.accept()
-    print(f"✅ [WS Geral] Conexão aceita para o usuário ID: {usuario_id} ({usuario['nome'])})")
-
+    print(f"✅ [WS Geral] Conexão aceita para o usuário ID: {usuario_id} ({usuario['nome']})")
     if usuario_id not in conexoes_usuarios:
         conexoes_usuarios[usuario_id] = []
 
