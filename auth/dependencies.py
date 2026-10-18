@@ -1,4 +1,3 @@
-import time
 
 from fastapi import Cookie, HTTPException, status
 
@@ -14,8 +13,6 @@ from auth.security import decodificar_token
 def get_current_user(
     access_token: str | None = Cookie(default=None)
 ):
-    inicio = time.perf_counter()
-
     # Verifica se existe um token no cookie
     if not access_token:
         raise HTTPException(
@@ -25,16 +22,7 @@ def get_current_user(
 
     try:
         # Decodifica e valida o JWT
-        inicio_jwt = time.perf_counter()
-
         payload = decodificar_token(access_token)
-
-        fim_jwt = time.perf_counter()
-
-        print(
-            f"Tempo para decodificar JWT: "
-            f"{(fim_jwt - inicio_jwt) * 1000:.2f} ms"
-        )
 
         user_id = payload.get("sub")
         tipo = payload.get("tipo")
@@ -49,9 +37,6 @@ def get_current_user(
         # =========================
         # BUSCA DO USUÁRIO NO BANCO
         # =========================
-
-        inicio_banco = time.perf_counter()
-
         db = SessionLocal()
 
         try:
@@ -75,13 +60,6 @@ def get_current_user(
         finally:
             db.close()
 
-            fim_banco = time.perf_counter()
-
-            print(
-                f"Tempo da busca do usuário no banco: "
-                f"{(fim_banco - inicio_banco) * 1000:.2f} ms"
-            )
-
     except HTTPException:
         raise
 
@@ -89,12 +67,4 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Token inválido ou expirado"
-        )
-
-    finally:
-        fim = time.perf_counter()
-
-        print(
-            f"Tempo total do get_current_user: "
-            f"{(fim - inicio) * 1000:.2f} ms"
         )
