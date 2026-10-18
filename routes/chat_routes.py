@@ -60,7 +60,13 @@ def autenticar_websocket(websocket):
 
     access_token = websocket.cookies.get("access_token")
 
+    print(
+        f"[WS AUTH] Cookie access_token recebido: "
+        f"{access_token is not None}"
+    )
+
     if not access_token:
+        print("[WS AUTH] Falha: cookie não recebido.")
         return None
 
     try:
@@ -71,6 +77,7 @@ def autenticar_websocket(websocket):
         tipo = payload.get("tipo")
 
         if not user_id or not tipo:
+            print("[WS AUTH] Falha: token sem sub ou tipo.")
             return None
 
         db = SessionLocal()
@@ -83,7 +90,15 @@ def autenticar_websocket(websocket):
             )
 
             if not usuario:
+                print(
+                    f"[WS AUTH] Falha: usuário {user_id} não encontrado."
+                )
                 return None
+
+            print(
+                f"[WS AUTH] Autenticado: usuário={usuario.id}, "
+                f"tipo={usuario.tipo}"
+            )
 
             return {
                 "user_id": usuario.id,
@@ -95,7 +110,12 @@ def autenticar_websocket(websocket):
 
             db.close()
 
-    except Exception:
+    except Exception as erro:
+
+        print(
+            f"[WS AUTH] Erro ao validar token: "
+            f"{type(erro).__name__}: {erro}"
+        )
 
         return None
 
@@ -427,11 +447,15 @@ async def websocket_usuario(
     websocket: WebSocket
 ):
 
+    print("[WS GERAL] Tentativa de conexão recebida.")
+
     usuario = autenticar_websocket(
         websocket
     )
 
     if not usuario:
+
+        print("[WS GERAL] Conexão recusada: autenticação falhou.")
 
         await websocket.close(
             code=1008
@@ -440,6 +464,10 @@ async def websocket_usuario(
         return
 
     usuario_id = usuario["user_id"]
+
+    print(
+        f"[WS GERAL] Aceitando conexão do usuário {usuario_id}."
+    )
 
     await websocket.accept()
 
@@ -459,6 +487,10 @@ async def websocket_usuario(
             }
         )
 
+        print(
+            f"[WS GERAL] Conectado com sucesso: usuário={usuario_id}."
+        )
+
         while True:
 
             await websocket.receive_text()
@@ -466,8 +498,13 @@ async def websocket_usuario(
     except WebSocketDisconnect:
 
         print(
-            "WebSocket geral desconectado:",
-            usuario_id
+            f"[WS GERAL] Desconectado: usuário={usuario_id}."
+        )
+
+    except Exception as erro:
+
+        print(
+            f"[WS GERAL] Erro: {type(erro).__name__}: {erro}"
         )
 
     finally:
@@ -494,11 +531,23 @@ async def chat_websocket(
     negociacao_id: int
 ):
 
+    print(
+        f"[WS CHAT] Tentativa de conexão: negociação={negociacao_id}"
+    )
+
     usuario = autenticar_websocket(
         websocket
     )
 
+    print(
+        f"[WS CHAT] Autenticação concluída: "
+        f"{'sucesso' if usuario else 'falha'}, "
+        f"negociação={negociacao_id}"
+    )
+
     if not usuario:
+
+        print("[WS CHAT] Recusado: autenticação falhou.")
 
         await websocket.close(
             code=1008
@@ -514,6 +563,8 @@ async def chat_websocket(
 
     if not negociacao:
 
+        print("[WS CHAT] Recusado: negociação não encontrada.")
+
         await websocket.close(
             code=1008
         )
@@ -524,6 +575,8 @@ async def chat_websocket(
         negociacao,
         remetente_id
     ):
+
+        print("[WS CHAT] Recusado: usuário sem acesso à negociação.")
 
         await websocket.close(
             code=1008
@@ -544,6 +597,8 @@ async def chat_websocket(
 
     if not conversa:
 
+        print("[WS CHAT] Recusado: conversa não iniciada.")
+
         db.close()
 
         await websocket.close(
@@ -557,6 +612,11 @@ async def chat_websocket(
     # ==========================================
 
     await websocket.accept()
+
+    print(
+        f"[WS CHAT] Conectado: usuário={remetente_id}, "
+        f"negociação={negociacao_id}"
+    )
 
     if negociacao_id not in conexoes_chat:
         conexoes_chat[negociacao_id] = []
@@ -735,6 +795,12 @@ async def chat_websocket(
             "WebSocket do chat desconectado:",
             negociacao_id,
             remetente_id
+        )
+
+    except Exception as erro:
+
+        print(
+            f"[WS CHAT] Erro: {type(erro).__name__}: {erro}"
         )
 
     finally:
