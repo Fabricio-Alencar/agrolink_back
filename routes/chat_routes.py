@@ -1,6 +1,4 @@
 
-import os
-
 from fastapi import (
     APIRouter,
     Depends,
@@ -55,17 +53,6 @@ conexoes_usuarios = {}
 
 
 # =========================================================
-# IDENTIFICAÇÃO DO PROCESSO / INSTÂNCIA
-# =========================================================
-
-def identificar_processo():
-    return (
-        f"instancia={os.getenv('WEBSITE_INSTANCE_ID', 'local')} "
-        f"pid={os.getpid()}"
-    )
-
-
-# =========================================================
 # AUTENTICAR WEBSOCKET
 # =========================================================
 
@@ -73,13 +60,7 @@ def autenticar_websocket(websocket):
 
     access_token = websocket.cookies.get("access_token")
 
-    print(
-        f"[WS AUTH] Cookie access_token recebido: "
-        f"{access_token is not None}"
-    )
-
     if not access_token:
-        print("[WS AUTH] Falha: cookie não recebido.")
         return None
 
     try:
@@ -90,7 +71,6 @@ def autenticar_websocket(websocket):
         tipo = payload.get("tipo")
 
         if not user_id or not tipo:
-            print("[WS AUTH] Falha: token sem sub ou tipo.")
             return None
 
         db = SessionLocal()
@@ -103,15 +83,7 @@ def autenticar_websocket(websocket):
             )
 
             if not usuario:
-                print(
-                    f"[WS AUTH] Falha: usuário {user_id} não encontrado."
-                )
                 return None
-
-            print(
-                f"[WS AUTH] Autenticado: usuário={usuario.id}, "
-                f"tipo={usuario.tipo}"
-            )
 
             return {
                 "user_id": usuario.id,
@@ -120,14 +92,10 @@ def autenticar_websocket(websocket):
             }
 
         finally:
+
             db.close()
 
-    except Exception as erro:
-
-        print(
-            f"[WS AUTH] Erro ao validar token: "
-            f"{type(erro).__name__}: {erro}"
-        )
+    except Exception:
 
         return None
 
@@ -175,24 +143,38 @@ def iniciar_conversa_route(
 
     usuario_id = usuario["user_id"]
 
+    # ==========================================
+    # BUSCA A NEGOCIAÇÃO
+    # ==========================================
+
     negociacao = buscar_negociacao(
         negociacao_id
     )
 
     if not negociacao:
+
         raise HTTPException(
             status_code=404,
             detail="Negociação não encontrada."
         )
 
+    # ==========================================
+    # VALIDA O ACESSO
+    # ==========================================
+
     if not usuario_tem_acesso(
         negociacao,
         usuario_id
     ):
+
         raise HTTPException(
             status_code=403,
             detail="Você não possui acesso a esta negociação."
         )
+
+    # ==========================================
+    # CRIA OU REUTILIZA A CONVERSA
+    # ==========================================
 
     conversa = iniciar_conversa(
         db_chat,
@@ -225,6 +207,7 @@ def verificar_acesso_negociacao(
     )
 
     if not negociacao:
+
         return {
             "permitido": False
         }
@@ -257,6 +240,7 @@ def enviar_mensagem(
     )
 
     if not negociacao:
+
         raise HTTPException(
             status_code=404,
             detail="Negociação não encontrada."
@@ -266,10 +250,15 @@ def enviar_mensagem(
         negociacao,
         usuario_id
     ):
+
         raise HTTPException(
             status_code=403,
             detail="Você não possui acesso a esta negociação."
         )
+
+    # ==========================================
+    # EXIGE QUE A CONVERSA TENHA SIDO INICIADA
+    # ==========================================
 
     conversa = buscar_conversa(
         db,
@@ -277,12 +266,10 @@ def enviar_mensagem(
     )
 
     if not conversa:
+
         raise HTTPException(
             status_code=409,
-            detail=(
-                "Inicie a conversa pelo botão Conversar "
-                "antes de enviar mensagens."
-            )
+            detail="Inicie a conversa pelo botão Conversar antes de enviar mensagens."
         )
 
     mensagem = criar_mensagem(
@@ -320,6 +307,7 @@ async def listar_mensagens(
     )
 
     if not negociacao:
+
         raise HTTPException(
             status_code=404,
             detail="Negociação não encontrada."
@@ -329,10 +317,15 @@ async def listar_mensagens(
         negociacao,
         usuario_id
     ):
+
         raise HTTPException(
             status_code=403,
             detail="Você não possui acesso a esta negociação."
         )
+
+    # ==========================================
+    # VERIFICA SE A CONVERSA FOI INICIADA
+    # ==========================================
 
     conversa = buscar_conversa(
         db,
@@ -340,10 +333,15 @@ async def listar_mensagens(
     )
 
     if not conversa:
+
         raise HTTPException(
             status_code=404,
             detail="Esta conversa ainda não foi iniciada."
         )
+
+    # ==========================================
+    # MARCA MENSAGENS COMO LIDAS
+    # ==========================================
 
     mensagens_lidas = marcar_mensagens_como_lidas(
         db,
@@ -351,10 +349,21 @@ async def listar_mensagens(
         usuario_id
     )
 
+    # ==========================================
+    # IDENTIFICA O OUTRO PARTICIPANTE
+    # ==========================================
+
     if negociacao.comprador_id == usuario_id:
+
         outro_usuario_id = negociacao.vendedor_id
+
     else:
+
         outro_usuario_id = negociacao.comprador_id
+
+    # ==========================================
+    # NOTIFICA SOBRE A LEITURA
+    # ==========================================
 
     if mensagens_lidas:
 
@@ -375,16 +384,21 @@ async def listar_mensagens(
             ):
 
                 try:
+
                     await conexao_usuario.send_json(
                         notificacao
                     )
 
                 except Exception as erro:
+
                     print(
-                        "[WS LEITURA] Erro ao notificar leitura:",
-                        type(erro).__name__,
+                        "Erro ao notificar leitura:",
                         erro
                     )
+
+    # ==========================================
+    # RETORNA AS MENSAGENS
+    # ==========================================
 
     mensagens = buscar_mensagens(
         db,
@@ -413,20 +427,16 @@ async def websocket_usuario(
     websocket: WebSocket
 ):
 
-    print(
-        f"[WS GERAL] Tentativa de conexão recebida. "
-        f"{identificar_processo()}"
+    usuario = autenticar_websocket(
+        websocket
     )
-
-    usuario = autenticar_websocket(websocket)
 
     if not usuario:
 
-        print(
-            "[WS GERAL] Conexão recusada: autenticação falhou."
+        await websocket.close(
+            code=1008
         )
 
-        await websocket.close(code=1008)
         return
 
     usuario_id = usuario["user_id"]
@@ -436,36 +446,28 @@ async def websocket_usuario(
     if usuario_id not in conexoes_usuarios:
         conexoes_usuarios[usuario_id] = []
 
-    conexoes_usuarios[usuario_id].append(websocket)
-
-    print(
-        f"[WS GERAL] Conectado: usuário={usuario_id}; "
-        f"{identificar_processo()}; "
-        f"conexoes_usuario={len(conexoes_usuarios[usuario_id])}"
+    conexoes_usuarios[usuario_id].append(
+        websocket
     )
 
     try:
 
-        await websocket.send_json({
-            "tipo": "conexao",
-            "mensagem": "WebSocket geral conectado."
-        })
+        await websocket.send_json(
+            {
+                "tipo": "conexao",
+                "mensagem": "WebSocket geral conectado."
+            }
+        )
 
         while True:
+
             await websocket.receive_text()
 
     except WebSocketDisconnect:
 
         print(
-            f"[WS GERAL] Desconectado: usuário={usuario_id}; "
-            f"{identificar_processo()}"
-        )
-
-    except Exception as erro:
-
-        print(
-            f"[WS GERAL] Erro: {type(erro).__name__}: {erro}; "
-            f"{identificar_processo()}"
+            "WebSocket geral desconectado:",
+            usuario_id
         )
 
     finally:
@@ -491,84 +493,90 @@ async def chat_websocket(
     websocket: WebSocket,
     negociacao_id: int
 ):
-    print(
-        f"[TESTE WS CONVERSA] Rota acessada: "
-        f"negociacao_id={negociacao_id}",
-        flush=True
-    )
 
-    print(
-        f"[WS CHAT] Tentativa: negociação={negociacao_id}; "
-        f"{identificar_processo()}"
+    usuario = autenticar_websocket(
+        websocket
     )
-
-    usuario = autenticar_websocket(websocket)
 
     if not usuario:
 
-        print("[WS CHAT] Recusado: autenticação falhou.")
-        await websocket.close(code=1008)
+        await websocket.close(
+            code=1008
+        )
+
         return
 
     remetente_id = usuario["user_id"]
 
-    negociacao = buscar_negociacao(negociacao_id)
+    negociacao = buscar_negociacao(
+        negociacao_id
+    )
 
     if not negociacao:
 
-        print("[WS CHAT] Recusado: negociação não encontrada.")
-        await websocket.close(code=1008)
+        await websocket.close(
+            code=1008
+        )
+
         return
 
-    if not usuario_tem_acesso(negociacao, remetente_id):
+    if not usuario_tem_acesso(
+        negociacao,
+        remetente_id
+    ):
 
-        print("[WS CHAT] Recusado: usuário sem acesso.")
-        await websocket.close(code=1008)
+        await websocket.close(
+            code=1008
+        )
+
         return
+
+    # ==========================================
+    # SÓ PERMITE CONECTAR A UMA CONVERSA INICIADA
+    # ==========================================
 
     db = SessionChat()
 
+    conversa = buscar_conversa(
+        db,
+        negociacao_id
+    )
+
+    if not conversa:
+
+        db.close()
+
+        await websocket.close(
+            code=1008
+        )
+
+        return
+
+    # ==========================================
+    # ACEITA E REGISTRA A CONEXÃO
+    # ==========================================
+
+    await websocket.accept()
+
+    if negociacao_id not in conexoes_chat:
+        conexoes_chat[negociacao_id] = []
+
+    conexoes_chat[negociacao_id].append(
+        (
+            remetente_id,
+            websocket
+        )
+    )
+
     try:
-
-        conversa = buscar_conversa(
-            db,
-            negociacao_id
-        )
-
-        if not conversa:
-
-            print("[WS CHAT] Recusado: conversa não iniciada.")
-            await websocket.close(code=1008)
-            return
-
-        await websocket.accept()
-
-        if negociacao_id not in conexoes_chat:
-            conexoes_chat[negociacao_id] = []
-
-        conexoes_chat[negociacao_id].append(
-            (remetente_id, websocket)
-        )
-
-        print(
-            f"[WS DIAGNOSTICO] Conexão registrada; "
-            f"{identificar_processo()} "
-            f"negociação={negociacao_id} "
-            f"usuário={remetente_id} "
-            f"usuarios_registrados="
-            f"{[uid for uid, _ in conexoes_chat[negociacao_id]]}"
-        )
 
         while True:
 
             texto = await websocket.receive_text()
 
-            print(
-                f"[WS RECEBIMENTO] Mensagem recebida; "
-                f"{identificar_processo()} "
-                f"negociação={negociacao_id} "
-                f"remetente={remetente_id}"
-            )
+            # ======================================
+            # SALVA A MENSAGEM
+            # ======================================
 
             mensagem = criar_mensagem(
                 db,
@@ -577,25 +585,44 @@ async def chat_websocket(
                 texto
             )
 
+            # ======================================
+            # IDENTIFICA O OUTRO PARTICIPANTE
+            # ======================================
+
             if negociacao.comprador_id == remetente_id:
+
                 outro_usuario_id = negociacao.vendedor_id
+
             else:
+
                 outro_usuario_id = negociacao.comprador_id
 
-            conexoes_atuais = list(
+            # ======================================
+            # VERIFICA SE O DESTINATÁRIO ESTÁ
+            # COM A CONVERSA ABERTA
+            # ======================================
+
+            destinatario_no_chat = any(
+                usuario_id == outro_usuario_id
+                for usuario_id, conexao in
                 conexoes_chat.get(negociacao_id, [])
             )
 
-            destinatario_no_chat = any(
-                uid == outro_usuario_id
-                for uid, _ in conexoes_atuais
-            )
+            # ======================================
+            # MARCA COMO LIDA SE O DESTINATÁRIO
+            # ESTIVER CONECTADO À CONVERSA
+            # ======================================
 
             if destinatario_no_chat:
 
                 mensagem.lida = True
+
                 db.commit()
                 db.refresh(mensagem)
+
+            # ======================================
+            # MONTA OS DADOS ATUALIZADOS DA MENSAGEM
+            # ======================================
 
             mensagem_json = {
                 "id": mensagem.id,
@@ -606,45 +633,41 @@ async def chat_websocket(
                 "lida": mensagem.lida
             }
 
-            print(
-                f"[WS BROADCAST] Preparando envio; "
-                f"{identificar_processo()} "
-                f"negociação={negociacao_id} "
-                f"remetente={remetente_id} "
-                f"destinatario={outro_usuario_id} "
-                f"usuarios_conectados="
-                f"{[uid for uid, _ in conexoes_atuais]}"
-            )
+            # ======================================
+            # ENVIA PARA AS CONEXÕES DO CHAT
+            # ======================================
 
-            for usuario_id, conexao in conexoes_atuais:
+            for usuario_id, conexao in list(
+                conexoes_chat.get(negociacao_id, [])
+            ):
 
                 try:
 
                     if usuario_id == remetente_id:
 
-                        await conexao.send_json({
-                            "tipo": "confirmacao_mensagem",
-                            **mensagem_json
-                        })
+                        await conexao.send_json(
+                            {
+                                "tipo": "confirmacao_mensagem",
+                                **mensagem_json
+                            }
+                        )
 
                     else:
 
-                        await conexao.send_json(mensagem_json)
-
-                    print(
-                        f"[WS BROADCAST] Envio concluído; "
-                        f"negociação={negociacao_id} "
-                        f"destinatario_socket_usuario={usuario_id}"
-                    )
+                        await conexao.send_json(
+                            mensagem_json
+                        )
 
                 except Exception as erro:
 
                     print(
-                        f"[WS BROADCAST] Falha ao enviar; "
-                        f"negociação={negociacao_id} "
-                        f"socket_usuario={usuario_id} "
-                        f"erro={type(erro).__name__}: {erro}"
+                        "Erro ao enviar mensagem pelo WebSocket:",
+                        erro
                     )
+
+            # ======================================
+            # NOTIFICA O OUTRO USUÁRIO
+            # ======================================
 
             if outro_usuario_id in conexoes_usuarios:
 
@@ -662,14 +685,21 @@ async def chat_websocket(
                 ):
 
                     try:
-                        await conexao_usuario.send_json(notificacao)
+
+                        await conexao_usuario.send_json(
+                            notificacao
+                        )
 
                     except Exception as erro:
+
                         print(
-                            "[WS NOTIFICACAO] Falha ao notificar "
-                            f"usuário={outro_usuario_id}: "
-                            f"{type(erro).__name__}: {erro}"
+                            "Erro ao enviar notificação:",
+                            erro
                         )
+
+            # ======================================
+            # NOTIFICA O REMETENTE SOBRE A LEITURA
+            # ======================================
 
             if destinatario_no_chat:
 
@@ -687,35 +717,33 @@ async def chat_websocket(
                     ):
 
                         try:
+
                             await conexao_usuario.send_json(
                                 notificacao_leitura
                             )
 
                         except Exception as erro:
+
                             print(
-                                "[WS LEITURA] Falha ao notificar "
-                                f"remetente={remetente_id}: "
-                                f"{type(erro).__name__}: {erro}"
+                                "Erro ao notificar leitura:",
+                                erro
                             )
 
     except WebSocketDisconnect:
 
         print(
-            f"[WS CHAT] Desconectado: negociação={negociacao_id}, "
-            f"usuário={remetente_id}; {identificar_processo()}"
-        )
-
-    except Exception as erro:
-
-        print(
-            f"[WS CHAT] Erro: {type(erro).__name__}: {erro}; "
-            f"negociação={negociacao_id}; "
-            f"usuário={remetente_id}; {identificar_processo()}"
+            "WebSocket do chat desconectado:",
+            negociacao_id,
+            remetente_id
         )
 
     finally:
 
         db.close()
+
+        # ======================================
+        # REMOVE SOMENTE ESTA CONEXÃO
+        # ======================================
 
         if negociacao_id in conexoes_chat:
 
@@ -728,11 +756,3 @@ async def chat_websocket(
 
             if not conexoes_chat[negociacao_id]:
                 del conexoes_chat[negociacao_id]
-
-            print(
-                f"[WS CHAT] Conexão removida; "
-                f"{identificar_processo()} "
-                f"negociação={negociacao_id} "
-                f"usuarios_restantes="
-                f"{[uid for uid, _ in conexoes_chat.get(negociacao_id, [])]}"
-            )
