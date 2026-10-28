@@ -26,3 +26,9 @@ redis_client = redis.Redis(
     ssl=True,
     decode_responses=True
 )
+
+def invalidar_cache_marketplace():
+    try:
+        redis_client.delete("marketplace")
+    except Exception as e:
+        print("Erro ao limpar cache Redis:", str(e))

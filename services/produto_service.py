@@ -1,48 +1,34 @@
-import time
 from uuid import uuid4
 
 from database import SessionLocal
 from models.produto import Produto
 from models.usuario import Usuario
 from services.azure_storage_service import CONTAINER_PRODUTOS, deletar_arquivo, upload_arquivo
-from services.cache_service import redis_client
 from sqlalchemy import select
+from services.cache_service import invalidar_cache_marketplace
 
 
 def listar_produtos_produtor(user_id):
-    inicio = time.perf_counter()
     db = SessionLocal()
-
     try:
-        inicio_consulta = time.perf_counter()
-
         resultado = db.execute(select(Produto).where(Produto.produtor_id == user_id))
         produtos = resultado.scalars().all()
-
-        fim_consulta = time.perf_counter()
-
-        print(f"Tempo da consulta ao banco: {(fim_consulta - inicio_consulta) * 1000:.2f} ms")
-
         return produtos
-
     finally:
         db.close()
 
-        fim = time.perf_counter()
-
-        print(f"Tempo total do listar_produtos_produtor: {(fim - inicio) * 1000:.2f} ms")
 
 
 def criar_produto(data, arquivo_foto):
     db = SessionLocal()
 
     try:
-        usuario = db.get(Usuario, data['produtor_id'])
+        usuario = db.get(Usuario, data["produtor_id"])
 
         if not usuario:
             raise Exception("Usuário não encontrado")
 
-        if usuario.tipo != 'produtor':
+        if usuario.tipo != "produtor":
             raise Exception("Apenas produtores podem criar produtos")
 
         nome_blob = None
@@ -55,37 +41,30 @@ def criar_produto(data, arquivo_foto):
 
             nome_blob = f"{uuid4().hex}{extensao}"
 
-            upload_arquivo(arquivo_foto.file, nome_blob, CONTAINER_PRODUTOS)
+            upload_arquivo(
+                arquivo_foto.file,
+                nome_blob,
+                CONTAINER_PRODUTOS,
+            )
 
-        caminho_foto_banco = nome_blob if nome_blob else "foto_generica.png"
+        caminho_foto_banco = nome_blob or "foto_generica.png"
 
         try:
             produto = Produto(
-                nome=data.get('nome'),
-                preco=data.get('preco'),
-                produtor_id=data.get('produtor_id'),
-                quantidade=data.get('quantidade'),
-                status=data.get('status'),
-                categoria=data.get('categoria'),
-                unidade=data.get('unidade'),
-                descricao=data.get('descricao'),
-                foto=caminho_foto_banco
+                nome=data.get("nome"),
+                preco=data.get("preco"),
+                produtor_id=data.get("produtor_id"),
+                quantidade=data.get("quantidade"),
+                status=data.get("status"),
+                categoria=data.get("categoria"),
+                unidade=data.get("unidade"),
+                descricao=data.get("descricao"),
+                foto=caminho_foto_banco,
             )
 
             db.add(produto)
             db.commit()
             db.refresh(produto)
-
-            # O Redis não faz parte da operação do banco.
-            # Se falhar, o produto continua salvo.
-            try:
-                redis_client.delete("marketplace")
-            except Exception as e:
-                print("Erro ao limpar cache Redis:", str(e))
-
-            print(f"SUCESSO: Produto {produto.id} cadastrado.")
-
-            return produto
 
         except Exception as e:
             db.rollback()
@@ -97,9 +76,14 @@ def criar_produto(data, arquivo_foto):
                 try:
                     deletar_arquivo(nome_blob, CONTAINER_PRODUTOS)
                 except Exception as erro_blob:
-                    print("Não foi possível remover o Blob após erro no banco:", str(erro_blob))
+                    print("Não foi possível remover o Blob após erro no banco:",str(erro_blob),)
 
             raise Exception(f"Erro ao salvar no banco: {str(e)}")
+
+        # O produto já foi salvo. Uma falha no cache
+        # não deve desfazer a operação.
+        invalidar_cache_marketplace()
+        return produto
 
     finally:
         db.close()
@@ -135,11 +119,7 @@ def deletar_produto(produto_id, user_id):
             db.delete(produto)
             db.commit()
 
-            # Redis separado da operação do banco.
-            try:
-                redis_client.delete("marketplace")
-            except Exception as e:
-                print("Erro ao limpar cache Redis:", str(e))
+            invalidar_cache_marketplace()
 
             print(f"SUCESSO: Produto {produto_id} deletado.")
 
@@ -205,10 +185,7 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
 
             # Redis separado do banco.
             # Se falhar, a alteração do produto permanece salva.
-            try:
-                redis_client.delete("marketplace")
-            except Exception as e:
-                print("Erro ao limpar cache Redis:", str(e))
+            invalidar_cache_marketplace()
 
             print(f"SUCESSO: Produto {produto_id} atualizado.")
 
