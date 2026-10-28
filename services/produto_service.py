@@ -1,172 +1,229 @@
-import os
+import time
 from uuid import uuid4
-from models import db
+
+from database import SessionLocal
 from models.produto import Produto
 from models.usuario import Usuario
+from services.azure_storage_service import CONTAINER_PRODUTOS, deletar_arquivo, upload_arquivo
+from services.cache_service import redis_client
+from sqlalchemy import select
 
-# 📂 Caminho da pasta onde as fotos serão salvas fisicamente
-UPLOAD_FOLDER = os.path.join('static', 'uploads', 'produtos')
 
-
-# =========================
-# BUSCA TODOS OS PRODUTOS DE UM PRODUTOR ESPECÍFICO 
-# =========================
 def listar_produtos_produtor(user_id):
-    return Produto.query.filter_by(produtor_id=user_id).all()
+    inicio = time.perf_counter()
+    db = SessionLocal()
+
+    try:
+        inicio_consulta = time.perf_counter()
+
+        resultado = db.execute(select(Produto).where(Produto.produtor_id == user_id))
+        produtos = resultado.scalars().all()
+
+        fim_consulta = time.perf_counter()
+
+        print(f"Tempo da consulta ao banco: {(fim_consulta - inicio_consulta) * 1000:.2f} ms")
+
+        return produtos
+
+    finally:
+        db.close()
+
+        fim = time.perf_counter()
+
+        print(f"Tempo total do listar_produtos_produtor: {(fim - inicio) * 1000:.2f} ms")
 
 
-
-# =========================
-# CRIAR PRODUTO - RECEBE DADOS + ARQUIVO DE FOTO
-# =========================
 def criar_produto(data, arquivo_foto):
-    # 1. VERIFICA SE O PRODUTOR EXISTE E É DO TIPO CORRETO
-    usuario = Usuario.query.get(data['produtor_id'])
-    if not usuario:
-        raise Exception("Usuário não encontrado")
-    if usuario.tipo != 'produtor':
-        raise Exception("Apenas produtores podem criar produtos")
+    db = SessionLocal()
 
-    # 2. PROCESSA A FOTO (se enviada) E GERA O CAMINHO PARA O BANCO
-    caminho_foto_banco = "uploads/produtos/foto_generica.png" # Foto padrão se não enviar nada
-    if arquivo_foto:
-        # Garante que a pasta física existe no servidor
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-        # Pega a extensão da imagem (ex: .jpg, .png)
-        extensao = os.path.splitext(arquivo_foto.filename)[1]
-        # Gera um nome único aleatório para não sobrescrever arquivos
-        nome_arquivo = f"{uuid4().hex}{extensao}"  
-        # Salva o arquivo na pasta
-        caminho_completo = os.path.join(UPLOAD_FOLDER, nome_arquivo)
-        arquivo_foto.save(caminho_completo)
-        # Define a string que será guardada no banco de dados
-        caminho_foto_banco = f"uploads/produtos/{nome_arquivo}"
-
-    # 3. CRIA O PRODUTO NO BANCO DE DADOS
     try:
-        produto = Produto(
-            nome=data.get('nome'),
-            preco=data.get('preco'),
-            produtor_id=data.get('produtor_id'),
-            quantidade=data.get('quantidade'),
-            status=data.get('status'),
-            categoria=data.get('categoria'),
-            unidade=data.get('unidade'),
-            descricao=data.get('descricao'),
-            foto=caminho_foto_banco, # 📸 Salva o caminho gerado acima
-        )
-        db.session.add(produto)
-        db.session.commit()
-        print(f"✅ SUCESSO: Produto {produto.id} cadastrado.")
-        return produto
+        usuario = db.get(Usuario, data['produtor_id'])
 
-    except Exception as e:
-        # Se algo der errado no banco, desfazemos qualquer alteração pendente
-        db.session.rollback()
-        # 🧹 Limpeza: Apaga a foto caso o banco falhe, para não acumular lixo
-        if arquivo_foto and caminho_foto_banco != "uploads/produtos/foto_generica.png":
-            arquivo_lixo = os.path.join('static', caminho_foto_banco)
-            if os.path.exists(arquivo_lixo):
-                os.remove(arquivo_lixo)
-        # Exibe o erro detalhado no terminal
-        print("\n❌ [ERRO NO BANCO DE DADOS]:")
-        print(f"Detalhes do erro: {str(e)}")        
-        raise Exception(f"Erro ao salvar no banco: {str(e)}")
-    
+        if not usuario:
+            raise Exception("Usuário não encontrado")
+
+        if usuario.tipo != 'produtor':
+            raise Exception("Apenas produtores podem criar produtos")
+
+        nome_blob = None
+
+        if arquivo_foto:
+            extensao = ""
+
+            if arquivo_foto.filename and "." in arquivo_foto.filename:
+                extensao = "." + arquivo_foto.filename.rsplit(".", 1)[1].lower()
+
+            nome_blob = f"{uuid4().hex}{extensao}"
+
+            upload_arquivo(arquivo_foto.file, nome_blob, CONTAINER_PRODUTOS)
+
+        caminho_foto_banco = nome_blob if nome_blob else "foto_generica.png"
+
+        try:
+            produto = Produto(
+                nome=data.get('nome'),
+                preco=data.get('preco'),
+                produtor_id=data.get('produtor_id'),
+                quantidade=data.get('quantidade'),
+                status=data.get('status'),
+                categoria=data.get('categoria'),
+                unidade=data.get('unidade'),
+                descricao=data.get('descricao'),
+                foto=caminho_foto_banco
+            )
+
+            db.add(produto)
+            db.commit()
+            db.refresh(produto)
+
+            # O Redis não faz parte da operação do banco.
+            # Se falhar, o produto continua salvo.
+            try:
+                redis_client.delete("marketplace")
+            except Exception as e:
+                print("Erro ao limpar cache Redis:", str(e))
+
+            print(f"SUCESSO: Produto {produto.id} cadastrado.")
+
+            return produto
+
+        except Exception as e:
+            db.rollback()
+
+            print("ERRO NO BANCO DE DADOS:")
+            print(f"Detalhes do erro: {str(e)}")
+
+            if nome_blob:
+                try:
+                    deletar_arquivo(nome_blob, CONTAINER_PRODUTOS)
+                except Exception as erro_blob:
+                    print("Não foi possível remover o Blob após erro no banco:", str(erro_blob))
+
+            raise Exception(f"Erro ao salvar no banco: {str(e)}")
+
+    finally:
+        db.close()
 
 
-
-# =========================
-# DELETAR PRODUTO 
-# =========================
 def deletar_produto(produto_id, user_id):
-    # 1. BUSCA O PRODUTO NO BANCO
-    produto = Produto.query.get(produto_id)
-
-    if produto:
-        print("Produto encontrado:", produto.nome)
-        print("ID do dono do produto:", produto.produtor_id)
-        print("Foto salva:", produto.foto)
-    else:
-        print("Produto NÃO encontrado")
-
-    if not produto:
-        raise Exception("Produto não encontrado")
-
-    # 🔥 Segurança: só o dono pode excluir
-    if produto.produtor_id != user_id:
-        raise Exception("Você não tem permissão para excluir este produto")
+    db = SessionLocal()
 
     try:
-        # 2. REMOVE DO BANCO (mas ainda não confirma, para garantir que a imagem só seja apagada se o banco aceitar)
-        db.session.delete(produto)
-        # 3. REMOVE IMAGEM DO DISCO
-        if produto.foto and "foto_generica" not in produto.foto:
-            caminho_imagem = produto.foto
-            # Se vier só o caminho relativo, garante base correta
-            if not caminho_imagem.startswith("static"):
-                caminho_imagem = os.path.join('static', caminho_imagem)
-            if os.path.exists(caminho_imagem):
-                os.remove(caminho_imagem)
-                print("Imagem removida com sucesso")
-            else:
-                print("Imagem NÃO encontrada no disco")
+        produto = db.get(Produto, produto_id)
 
-        # 4. CONFIRMA A EXCLUSÃO NO BANCO
-        db.session.commit()
-        print("Produto deletado com sucesso")
-        return True
+        if produto:
+            print("Produto encontrado:", produto.nome)
+            print("ID do dono do produto:", produto.produtor_id)
+            print("Foto salva:", produto.foto)
+        else:
+            print("Produto NÃO encontrado")
+            raise Exception("Produto não encontrado")
 
-    except Exception as e:
-        db.session.rollback()
-        print("Erro ao deletar:", str(e))
-        raise Exception("Erro ao excluir no banco de dados") 
+        if produto.produtor_id != user_id:
+            raise Exception("Você não tem permissão para excluir este produto")
+
+        foto_produto = produto.foto
+
+        if foto_produto and foto_produto != "foto_generica.png" and not foto_produto.startswith(("http://", "https://")):
+            try:
+                deletar_arquivo(foto_produto, CONTAINER_PRODUTOS)
+                print(f"Foto do produto {produto_id} removida do Azure.")
+            except Exception as e:
+                print("Não foi possível excluir a foto do produto:", str(e))
+
+        try:
+            db.delete(produto)
+            db.commit()
+
+            # Redis separado da operação do banco.
+            try:
+                redis_client.delete("marketplace")
+            except Exception as e:
+                print("Erro ao limpar cache Redis:", str(e))
+
+            print(f"SUCESSO: Produto {produto_id} deletado.")
+
+            return True
+
+        except Exception as e:
+            db.rollback()
+
+            print("Erro ao deletar produto:", str(e))
+
+            raise Exception("Erro ao excluir no banco de dados")
+
+    finally:
+        db.close()
 
 
-# =========================
-# ATUALIZAR PRODUTO
-# =========================
 def atualizar_produto(produto_id, user_id, data, arquivo_foto):
-    # 1. BUSCA O PRODUTO E VALIDA DONO
-    produto = Produto.query.get(produto_id)
-    
-    if not produto:
-        raise Exception("Produto não encontrado")
-    
-    if produto.produtor_id != user_id:
-        raise Exception("Você não tem permissão para editar este produto")
+    db = SessionLocal()
 
-    # 2. ATUALIZA CAMPOS DE TEXTO
-    produto.nome = data.get('nome', produto.nome)
-    produto.preco = data.get('preco', produto.preco)
-    produto.quantidade = data.get('quantidade', produto.quantidade)
-    produto.unidade = data.get('unidade', produto.unidade)
-    produto.categoria = data.get('categoria', produto.categoria)
-    produto.descricao = data.get('descricao', produto.descricao)
-    produto.status = data.get('status', produto.status)
-
-    # 3. PROCESSA NOVA FOTO (SE HOUVER)
-    if arquivo_foto:
-        # a) Apagar a foto antiga do disco (se não for a genérica)
-        if produto.foto and "foto_generica.png" not in produto.foto:
-            caminho_antigo = os.path.join('static', produto.foto)
-            if os.path.exists(caminho_antigo):
-                os.remove(caminho_antigo)
-
-        # b) Salvar a nova foto
-        os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-        extensao = os.path.splitext(arquivo_foto.filename)[1]
-        nome_arquivo = f"{uuid4().hex}{extensao}"
-        caminho_completo = os.path.join(UPLOAD_FOLDER, nome_arquivo)
-        arquivo_foto.save(caminho_completo)
-        
-        # c) Atualiza o caminho no objeto produto
-        produto.foto = f"uploads/produtos/{nome_arquivo}"
-
-    # 4. SALVA NO BANCO
     try:
-        db.session.commit()
-        return produto
-    except Exception as e:
-        db.session.rollback()
-        raise Exception(f"Erro ao atualizar banco: {str(e)}")       
+        produto = db.get(Produto, produto_id)
+
+        if not produto:
+            raise Exception("Produto não encontrado")
+
+        if produto.produtor_id != user_id:
+            raise Exception("Você não tem permissão para editar este produto")
+
+        foto_antiga = produto.foto
+
+        produto.nome = data.get('nome', produto.nome)
+        produto.preco = data.get('preco', produto.preco)
+        produto.quantidade = data.get('quantidade', produto.quantidade)
+        produto.unidade = data.get('unidade', produto.unidade)
+        produto.categoria = data.get('categoria', produto.categoria)
+        produto.descricao = data.get('descricao', produto.descricao)
+        produto.status = data.get('status', produto.status)
+
+        novo_nome_blob = None
+
+        if arquivo_foto:
+            extensao = ""
+
+            if arquivo_foto.filename and "." in arquivo_foto.filename:
+                extensao = "." + arquivo_foto.filename.rsplit(".", 1)[1].lower()
+
+            novo_nome_blob = f"{uuid4().hex}{extensao}"
+
+            upload_arquivo(arquivo_foto.file, novo_nome_blob, CONTAINER_PRODUTOS)
+
+            produto.foto = novo_nome_blob
+
+            if foto_antiga and foto_antiga != "foto_generica.png" and not foto_antiga.startswith(("http://", "https://")):
+                try:
+                    deletar_arquivo(foto_antiga, CONTAINER_PRODUTOS)
+                    print(f"Foto antiga do produto {produto_id} removida do Azure.")
+                except Exception as e:
+                    print("Não foi possível excluir a foto antiga:", str(e))
+
+        try:
+            db.commit()
+            db.refresh(produto)
+
+            # Redis separado do banco.
+            # Se falhar, a alteração do produto permanece salva.
+            try:
+                redis_client.delete("marketplace")
+            except Exception as e:
+                print("Erro ao limpar cache Redis:", str(e))
+
+            print(f"SUCESSO: Produto {produto_id} atualizado.")
+
+            return produto
+
+        except Exception as e:
+            db.rollback()
+
+            if arquivo_foto and novo_nome_blob:
+                try:
+                    deletar_arquivo(novo_nome_blob, CONTAINER_PRODUTOS)
+                except Exception as erro_blob:
+                    print("Não foi possível remover o novo Blob após erro no banco:", str(erro_blob))
+
+            raise Exception(f"Erro ao atualizar banco: {str(e)}")
+
+    finally:
+        db.close()

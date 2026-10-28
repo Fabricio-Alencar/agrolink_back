@@ -1,102 +1,205 @@
-import os
 from uuid import uuid4
+
 from werkzeug.security import generate_password_hash
-from models import db
+
+from database import SessionLocal
 from models.usuario import Usuario
 
-# Caminho da pasta onde as fotos de perfil serão salvas fisicamente
-UPLOAD_FOLDER_PERFIL = os.path.join('static', 'uploads', 'perfis')
+from services.azure_storage_service import (
+    upload_arquivo,
+    deletar_arquivo,
+    CONTAINER_USUARIOS
+)
+
+from services.cache_service import redis_client
 
 
-# =========================
-# BUSCAR PERFIL DO USUÁRIO
-# =========================
 def obter_perfil_usuario(user_id):
-    usuario = Usuario.query.get(user_id)
-    if not usuario:
-        raise Exception("Usuário não encontrado.")
-    return usuario
+    db = SessionLocal()
 
-
-# =========================
-# ATUALIZAR DADOS DO PERFIL E FOTO
-# =========================
-def atualizar_perfil_usuario(user_id, data, arquivo_foto):
-    # 1. BUSCA O USUÁRIO NO BANCO
-    usuario = Usuario.query.get(user_id)
-    if not usuario:
-        raise Exception("Usuário não encontrado.")
-
-    # 2. ATUALIZA CAMPOS DE TEXTO BÁSICOS
-    usuario.nome = data.get('nome', usuario.nome)
-    usuario.email = data.get('email', usuario.email)
-    usuario.telefone = data.get('telefone', usuario.telefone)
-    
-    # Tratamento para Localização (cidade e estado)
-    # Como no HTML está um campo só ("Cidade, Estado"), você pode precisar dividir no JS antes de mandar, 
-    # ou separar aqui no Python caso o front envie a string inteira.
-    usuario.cidade = data.get('cidade', usuario.cidade)
-    usuario.estado = data.get('estado', usuario.estado)
-
-    # 3. ATUALIZA SENHA (Se o usuário digitou uma nova diferente dos pontinhos do placeholder)
-    nova_senha = data.get('senha')
-    if nova_senha and nova_senha.strip() != "" and nova_senha != "••••••••":
-        usuario.senha = generate_password_hash(nova_senha)
-
-    # 4. PROCESSA NOVA FOTO DE PERFIL (SE ENVIADA)
-    if arquivo_foto:
-        # a) Apaga a foto antiga do disco (se não for a imagem padrão user.webp)
-        if getattr(usuario, 'foto_perfil', None) and "user.webp" not in usuario.foto_perfil:
-            caminho_antigo = os.path.join('static', usuario.foto_perfil)
-            if os.path.exists(caminho_antigo):
-                os.remove(caminho_antigo)
-
-        # b) Salva a nova foto
-        os.makedirs(UPLOAD_FOLDER_PERFIL, exist_ok=True)
-        extensao = os.path.splitext(arquivo_foto.filename)[1]
-        nome_arquivo = f"{uuid4().hex}{extensao}"
-        caminho_completo = os.path.join(UPLOAD_FOLDER_PERFIL, nome_arquivo)
-        arquivo_foto.save(caminho_completo)
-        
-        # c) Atualiza o caminho no objeto do banco
-        usuario.foto_perfil = f"uploads/perfis/{nome_arquivo}"
-
-    # 5. SALVA NO BANCO
     try:
-        db.session.commit()
+        usuario = db.get(Usuario, user_id)
+
+        if not usuario:
+            raise Exception("Usuário não encontrado.")
+
         return usuario
-    except Exception as e:
-        db.session.rollback()
-        raise Exception(f"Erro ao atualizar perfil no banco de dados: {str(e)}")
+
+    finally:
+        db.close()
 
 
-# =========================
-# EXCLUIR CONTA DE USUÁRIO
-# =========================
-def excluir_conta_usuario(user_id):
-    # 1. BUSCA O USUÁRIO NO BANCO
-    usuario = Usuario.query.get(user_id)
-    if not usuario:
-        raise Exception("Usuário não encontrado.")
+def atualizar_perfil_usuario(user_id, data, arquivo_foto):
+    db = SessionLocal()
 
     try:
-        # 2. REMOVE A FOTO DE PERFIL FÍSICA (se não for a padrão)
-        if getattr(usuario, 'foto_perfil', None) and "user.webp" not in usuario.foto_perfil:
-            caminho_imagem = os.path.join('static', usuario.foto_perfil)
-            if os.path.exists(caminho_imagem):
-                os.remove(caminho_imagem)
+        usuario = db.get(Usuario, user_id)
 
-        # Nota: Dependendo de como estão configuradas as suas Foreign Keys (cascade)
-        # deletar o usuário pode já deletar os produtos e negociações dele automaticamente.
-        
-        # 3. EXCLUI O USUÁRIO
-        db.session.delete(usuario)
-        db.session.commit()
-        
-        print(f"✅ SUCESSO: Conta do usuário {user_id} excluída.")
-        return True
+        if not usuario:
+            raise Exception("Usuário não encontrado.")
 
-    except Exception as e:
-        db.session.rollback()
-        print("\n❌ [ERRO AO EXCLUIR CONTA]:", str(e))
-        raise Exception("Erro ao excluir conta no banco de dados. Verifique restrições de chave estrangeira.")
+        foto_antiga = usuario.foto_perfil
+
+        # Atualizar os dados gerais do usuário
+        usuario.nome = data.get("nome", usuario.nome)
+        usuario.email = data.get("email", usuario.email)
+        usuario.telefone = data.get("telefone", usuario.telefone)
+        usuario.cidade = data.get("cidade", usuario.cidade)
+        usuario.estado = data.get("estado", usuario.estado)
+
+        # Atualizar a senha, caso tenha sido informada
+        nova_senha = data.get("senha")
+
+        if (
+            nova_senha
+            and nova_senha.strip() != ""
+            and nova_senha != "••••••••"
+        ):
+            usuario.senha = generate_password_hash(nova_senha)
+
+        # Atualizar a foto de perfil, caso um arquivo tenha sido enviado
+        if arquivo_foto:
+            extensao = ""
+
+            if arquivo_foto.filename and "." in arquivo_foto.filename:
+                extensao = "." + arquivo_foto.filename.rsplit(".", 1)[1].lower()
+
+            novo_nome_blob = f"{uuid4().hex}{extensao}"
+
+            upload_arquivo(
+                arquivo_foto.file,
+                novo_nome_blob,
+                CONTAINER_USUARIOS
+            )
+
+            usuario.foto_perfil = novo_nome_blob
+
+            # Excluir a foto anterior, se houver
+            if (
+                foto_antiga
+                and foto_antiga != "user.webp"
+                and not foto_antiga.startswith("http://")
+                and not foto_antiga.startswith("https://")
+            ):
+                try:
+                    deletar_arquivo(
+                        foto_antiga,
+                        CONTAINER_USUARIOS
+                    )
+
+                except Exception as e:
+                    print(
+                        "⚠️ Não foi possível excluir a foto antiga:",
+                        str(e)
+                    )
+
+        # Salvar as alterações no banco de dados
+        try:
+            db.commit()
+            db.refresh(usuario)
+
+        except Exception as e:
+            db.rollback()
+
+            print(
+                "\n❌ [ERRO AO SALVAR PERFIL NO BANCO]:",
+                repr(e)
+            )
+
+            raise Exception(
+                f"Erro ao atualizar perfil no banco de dados: {str(e)}"
+            )
+
+        # Invalidar o cache separadamente do salvamento do perfil
+        if usuario.tipo == "produtor":
+            try:
+                redis_client.delete("marketplace")
+
+            except Exception as e:
+                print(
+                    "\n⚠️ [ERRO AO INVALIDAR CACHE DO MARKETPLACE]:",
+                    repr(e)
+                )
+
+        print(
+            f"✅ SUCESSO: Perfil do usuário {user_id} atualizado."
+        )
+
+        return usuario
+
+    finally:
+        db.close()
+
+
+def excluir_conta_usuario(user_id):
+    db = SessionLocal()
+
+    try:
+        usuario = db.get(Usuario, user_id)
+
+        if not usuario:
+            raise Exception("Usuário não encontrado.")
+
+        foto_perfil = usuario.foto_perfil
+
+        # Excluir a foto de perfil do Azure, se houver
+        if (
+            foto_perfil
+            and foto_perfil != "user.webp"
+            and not foto_perfil.startswith("http://")
+            and not foto_perfil.startswith("https://")
+        ):
+            try:
+                deletar_arquivo(
+                    foto_perfil,
+                    CONTAINER_USUARIOS
+                )
+
+                print(
+                    f"🗑️ Foto de perfil do usuário {user_id} removida do Azure."
+                )
+
+            except Exception as e:
+                print(
+                    "⚠️ Não foi possível excluir a foto de perfil:",
+                    str(e)
+                )
+
+        try:
+            tipo_usuario = usuario.tipo
+
+            db.delete(usuario)
+            db.commit()
+
+            # Invalidar o cache do Marketplace se o usuário excluído for produtor
+            if tipo_usuario == "produtor":
+                try:
+                    redis_client.delete("marketplace")
+
+                except Exception as e:
+                    print(
+                        "\n⚠️ [ERRO AO INVALIDAR CACHE DO MARKETPLACE]:",
+                        repr(e)
+                    )
+
+            print(
+                f"✅ SUCESSO: Conta do usuário {user_id} excluída."
+            )
+
+            return True
+
+        except Exception as e:
+            db.rollback()
+
+            print(
+                "\n❌ [ERRO AO EXCLUIR CONTA]:",
+                repr(e)
+            )
+
+            raise Exception(
+                "Erro ao excluir conta no banco de dados. "
+                "Verifique restrições de chave estrangeira."
+            )
+
+    finally:
+        db.close()

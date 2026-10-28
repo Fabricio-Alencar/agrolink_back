@@ -1,73 +1,94 @@
-from flask import Blueprint, request, jsonify, session
+from fastapi import APIRouter, Depends, status
+from fastapi.responses import JSONResponse
+
 from services import marketplace_service
-from models import Produto
-from models import Negociacao
-from models import db
-from datetime import datetime
+from services.azure_storage_service import (
+    gerar_url_sas,
+    CONTAINER_PRODUTOS
+)
+from auth.dependencies import get_current_user
 
 
-marketplace_bp = Blueprint('marketplace', __name__)
+router = APIRouter(tags=["Marketplace"])
+
 
 # =========================
 # LISTAR PRODUTOS DO MARKETPLACE (LOGADO)
 # =========================
-@marketplace_bp.route('/produtos', methods=['GET'])
-def produtos():
-    user_id = session.get("user_id")
-
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
+@router.get("/produtos")
+def produtos(usuario_logado=Depends(get_current_user)):
 
     try:
         produtos = marketplace_service.listar_produtos()
 
-        return jsonify([
+        return [
             {
-                "id": p.id,
-                "nome": p.nome,
-                "preco": p.preco,
-                "quantidade": p.quantidade,
-                "unidade": p.unidade,
-                "categoria": p.categoria,
-                "descricao": p.descricao,
-                "foto": p.foto,
-                "status": p.status,
-                # 👤 Dados do Produtor extraídos via backref
-                "produtor_nome": p.produtor.nome,
-                "produtor_estado": p.produtor.estado,
-                "produtor_cidade": p.produtor.cidade,
-                "produtor_avaliacao": p.produtor.avaliacao or 5.0 # Caso seja nulo
+                "id": p["id"],
+                "nome": p["nome"],
+                "preco": p["preco"],
+                "quantidade": p["quantidade"],
+                "unidade": p["unidade"],
+                "categoria": p["categoria"],
+                "descricao": p["descricao"],
+
+                "foto": (
+                    gerar_url_sas(
+                        CONTAINER_PRODUTOS,
+                        p["foto"]
+                    )
+                    if p["foto"]
+                    and p["foto"] != "foto_generica.png"
+                    and "uploads/produtos/foto_generica.png" not in p["foto"]
+                    else None
+                ),
+
+                "status": p["status"],
+                "produtor_nome": p["produtor_nome"],
+                "produtor_estado": p["produtor_estado"],
+                "produtor_cidade": p["produtor_cidade"],
+                "produtor_id": p.get("produtor_id"),
+                "produtor_avaliacao": p.get("produtor_avaliacao"),
+                "produtor_total_avaliacoes": p.get("produtor_total_avaliacoes", 0)
             }
             for p in produtos
-        ]), 200
+        ]
 
     except Exception as e:
-        return jsonify({"erro": f"Erro ao listar produtos: {str(e)}"}), 500
-    
+        return JSONResponse(
+            status_code=500,
+            content={
+                "erro": f"Erro ao listar produtos: {str(e)}"
+            }
+        )
+
 
 # =========================
 # REGISTRAR PEDIDO (LOGADO)
 # =========================
-@marketplace_bp.route('/negociar', methods=['POST'])
-def criar_negociacao():
-    # 1. Identifica o comprador pela sessão
-    comprador_id = session.get("user_id")
-    if not comprador_id:
-        return jsonify({"erro": "Faça login para negociar"}), 401
+@router.post("/negociar", status_code=status.HTTP_201_CREATED)
+def criar_negociacao(
+    data: dict,
+    usuario_logado=Depends(get_current_user)
+):
 
-    # 2. Pega os dados do JSON enviado pelo modal.js
-    data = request.get_json()
+    comprador_id = usuario_logado["user_id"]
 
     try:
-        # 3. Processa a negociação
-        negociacao = marketplace_service.registrar_pedido(comprador_id, data)
+        negociacao = marketplace_service.registrar_pedido(
+            comprador_id,
+            data
+        )
 
-        return jsonify({
+        return {
             "msg": "Solicitação de negociação enviada!",
             "id": negociacao.id,
             "status": negociacao.status
-        }), 201
+        }
 
     except Exception as e:
-        db.session.rollback()
-        return jsonify({"erro": str(e)}), 400
+        return JSONResponse(
+            status_code=400,
+            content={
+                "erro": str(e)
+            }
+        )

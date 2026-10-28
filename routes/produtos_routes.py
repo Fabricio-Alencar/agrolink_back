@@ -1,90 +1,133 @@
-from flask import Blueprint, request, jsonify, session
+import time
+
+from fastapi import APIRouter, Depends, Form, UploadFile, File, status
+from fastapi.responses import JSONResponse
+
 from services import produto_service
-from services.ceagesp import obtener_cotacao_ceagesp
-
-produtos_bp = Blueprint('produtos', __name__)
-
-
-# =========================
-# MEUS PRODUTOS (LOGADO)
-# =========================
-@produtos_bp.route('/meus-produtos', methods=['GET'])
-def meus_produtos():
-
-    # 🔐 pega usuário logado da sessão Flask
-    user_id = session.get("user_id")
-
-    # 🚨 bloqueia acesso se não estiver logado
-    if not user_id:
-        return jsonify({"erro": "Usuário não autenticado"}), 401
-
-    # 📦 busca produtos do usuário
-    produtos = produto_service.listar_produtos_produtor(user_id)
-
-    # 🔄 retorna JSON formatado
-    return jsonify([
-        {
-            "id": p.id,
-            "nome": p.nome,
-            "preco": p.preco,
-            "quantidade": p.quantidade,
-            "unidade": p.unidade,
-            "categoria": p.categoria,
-            "descricao": p.descricao,
-            "status": p.status,
-
-            # 📸 URL pública Azure Blob Storage
-            "foto": p.foto
-        }
-        for p in produtos
-    ]), 200
+from services.azure_storage_service import (
+    gerar_url_sas,
+    CONTAINER_PRODUTOS
+)
+from auth.dependencies import get_current_user
 
 
-# =========================
-# CRIAR PRODUTO (LOGADO)
-# =========================
-@produtos_bp.route('/produtos', methods=['POST'])
-def criar_produto():
+router = APIRouter(tags=["Produtos"])
 
-    # =========================
-    # 1. CAPTURA DADOS
-    # =========================
-    data = request.form.to_dict()
 
-    # captura arquivo enviado
-    arquivo_foto = request.files.get('foto')
+@router.get("/meus-produtos")
+def meus_produtos(usuario_logado=Depends(get_current_user)):
+    inicio = time.perf_counter()
 
-    # =========================
-    # 2. VALIDA LOGIN
-    # =========================
-    user_id = session.get("user_id")
-
-    if not user_id:
-        return jsonify({
-            "erro": "Usuário não autenticado"
-        }), 401
-
-    # =========================
-    # 3. VINCULA AO PRODUTOR
-    # =========================
-    data['produtor_id'] = user_id
+    user_id = usuario_logado["user_id"]
 
     try:
+        # ==========================================
+        # BUSCA DOS PRODUTOS
+        # ==========================================
 
-        # =========================
-        # 4. CRIA PRODUTO
-        # =========================
-        produto = produto_service.criar_produto(
-            data,
-            arquivo_foto
+        inicio_produtos = time.perf_counter()
+
+        produtos = produto_service.listar_produtos_produtor(
+            user_id
         )
 
-        # =========================
-        # 5. RESPOSTA
-        # =========================
-        return jsonify({
-            "msg": "Produto criado com sucesso",
+        fim_produtos = time.perf_counter()
 
+        print(
+            f"Tempo banco + serviço: "
+            f"{(fim_produtos - inicio_produtos) * 1000:.2f} ms"
+        )
+
+        # ==========================================
+        # GERAÇÃO DAS URLs SAS
+        # ==========================================
+
+        inicio_sas = time.perf_counter()
+
+        resposta = [
+            {
+                "id": p.id,
+                "nome": p.nome,
+                "preco": p.preco,
+                "quantidade": p.quantidade,
+                "unidade": p.unidade,
+                "categoria": p.categoria,
+                "descricao": p.descricao,
+                "status": p.status,
+                "foto": (
+                    gerar_url_sas(
+                        CONTAINER_PRODUTOS,
+                        p.foto
+                    )
+                    if p.foto
+                    and p.foto != "foto_generica.png"
+                    and "uploads/produtos/foto_generica.png" not in p.foto
+                    else None
+                )
+            }
+            for p in produtos
+        ]
+
+        fim_sas = time.perf_counter()
+
+        print(
+            f"Tempo geração URLs SAS: "
+            f"{(fim_sas - inicio_sas) * 1000:.2f} ms"
+        )
+
+        # ==========================================
+        # TEMPO TOTAL DA ROTA
+        # ==========================================
+
+        fim = time.perf_counter()
+
+        print(
+            f"Tempo total da rota: "
+            f"{(fim - inicio) * 1000:.2f} ms"
+        )
+
+        return resposta
+
+    except Exception as e:
+        return JSONResponse(
+            status_code=400,
+            content={"erro": str(e)}
+        )
+
+
+@router.post("/produtos", status_code=status.HTTP_201_CREATED)
+def criar_produto(
+    usuario_logado=Depends(get_current_user),
+    nome: str = Form(...),
+    preco: float = Form(...),
+    quantidade: float = Form(...),
+    unidade: str = Form(...),
+    categoria: str = Form(...),
+    descricao: str = Form(...),
+    status_produto: str = Form(...),
+    foto: UploadFile | None = File(default=None)
+):
+    user_id = usuario_logado["user_id"]
+
+    data = {
+        "nome": nome,
+        "preco": preco,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "categoria": categoria,
+        "descricao": descricao,
+        "status": status_produto,
+        "produtor_id": user_id
+    }
+
+    try:
+        produto = produto_service.criar_produto(
+            data,
+            foto
+        )
+
+        return {
+            "msg": "Produto criado com sucesso",
             "produto": {
                 "id": produto.id,
                 "nome": produto.nome,
@@ -92,118 +135,87 @@ def criar_produto():
                 "descricao": produto.descricao,
                 "foto": produto.foto
             }
-
-        }), 201
+        }
 
     except Exception as e:
+        return JSONResponse(
+            status_code=400,
+            content={"erro": str(e)}
+        )
 
-        return jsonify({
-            "erro": str(e)
-        }), 400
 
-
-# =========================
-# EXCLUIR PRODUTO
-# =========================
-@produtos_bp.route(
-    '/produtos/<int:produto_id>',
-    methods=['DELETE']
-)
-def excluir_produto(produto_id):
-
-    # 🔐 usuário logado
-    user_id = session.get("user_id")
-
-    if not user_id:
-        return jsonify({
-            "erro": "Usuário não autenticado"
-        }), 401
+@router.delete("/produtos/{produto_id}")
+def excluir_produto(
+    produto_id: int,
+    usuario_logado=Depends(get_current_user)
+):
+    user_id = usuario_logado["user_id"]
 
     try:
-
-        # remove produto
         produto_service.deletar_produto(
             produto_id,
             user_id
         )
 
-        return jsonify({
+        return {
             "msg": "Produto removido com sucesso",
             "id_excluido": produto_id
-        }), 200
+        }
 
     except Exception as e:
+        return JSONResponse(
+            status_code=403,
+            content={"erro": str(e)}
+        )
 
-        return jsonify({
-            "erro": str(e)
-        }), 403
 
+@router.post("/produtos/{produto_id}")
+def atualizar_produto(
+    produto_id: int,
+    usuario_logado=Depends(get_current_user),
+    nome: str | None = Form(default=None),
+    preco: float | None = Form(default=None),
+    quantidade: float | None = Form(default=None),
+    unidade: str | None = Form(default=None),
+    categoria: str | None = Form(default=None),
+    descricao: str | None = Form(default=None),
+    status_produto: str | None = Form(
+        default=None,
+        alias="status"
+    ),
+    foto: UploadFile | None = File(default=None)
+):
+    user_id = usuario_logado["user_id"]
 
-# =========================
-# ATUALIZAR PRODUTO
-# =========================
-@produtos_bp.route(
-    '/produtos/<int:produto_id>',
-    methods=['POST']
-)
-def atualizar_produto(produto_id):
-
-    # 🔐 usuário logado
-    user_id = session.get("user_id")
-
-    if not user_id:
-        return jsonify({
-            "erro": "Usuário não autenticado"
-        }), 401
-
-    # captura dados
-    data = request.form.to_dict()
-
-    # captura nova foto
-    arquivo_foto = request.files.get('foto')
+    data = {
+        "nome": nome,
+        "preco": preco,
+        "quantidade": quantidade,
+        "unidade": unidade,
+        "categoria": categoria,
+        "descricao": descricao,
+        "status": status_produto
+    }
 
     try:
-
-        # atualiza produto
         produto = produto_service.atualizar_produto(
             produto_id,
             user_id,
             data,
-            arquivo_foto
+            foto
         )
 
-        return jsonify({
-
+        return {
             "msg": "Produto atualizado com sucesso",
-
             "produto": {
                 "id": produto.id,
                 "nome": produto.nome,
                 "foto": produto.foto
             }
-
-        }), 200
+        }
 
     except Exception as e:
-
-        return jsonify({
-            "erro": str(e)
-        }), 400
-
-
-# Adicione a nova rota da CEAGESP:
-@produtos_bp.route('/api/cotacoes-ceagesp', methods=['GET'])
-def api_ceagesp():
-    nome_produto = request.args.get('produto')
-    categoria_produto = request.args.get('categoria', 'frutas')
-
-    if not nome_produto:
-        return jsonify({"erro": "O parâmetro 'produto' é obrigatório."}), 400
-
-    try:
-        # Chama a função do Selenium dentro de services/ceagesp.py
-        dados = obtener_cotacao_ceagesp(nome_produto, categoria_produto)
-        return jsonify(dados)
-    except Exception as e:
-        print(f"Erro interno no Selenium: {e}")
-        return jsonify({"erro": "Não foi possível obter os dados da CEAGESP."}), 500
+        return JSONResponse(
+            status_code=400,
+            content={"erro": str(e)}
+        )
