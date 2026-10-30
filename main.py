@@ -63,6 +63,29 @@ except Exception as e:
 
 
 # =========================
+# COLUNA usuarios.conta_excluida
+# =========================
+# Marca a conta como excluída sem apagar o usuário (mantém o histórico de pedidos).
+# Mesmo esquema da coluna acima: só acrescenta, não apaga nada
+
+try:
+    if "conta_excluida" not in [
+        coluna["name"] for coluna in inspect(engine).get_columns("usuarios")
+    ]:
+        se_nao_existir = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
+
+        with engine.begin() as conexao:
+            conexao.execute(text(
+                f"ALTER TABLE usuarios ADD COLUMN {se_nao_existir}conta_excluida BOOLEAN DEFAULT FALSE"
+            ))
+
+        print("Coluna usuarios.conta_excluida criada.")
+
+except Exception as e:
+    print(f"[AVISO] Não foi possível criar usuarios.conta_excluida: {e}")
+
+
+# =========================
 # CONFIGURAÇÃO DO CORS
 # =========================
 

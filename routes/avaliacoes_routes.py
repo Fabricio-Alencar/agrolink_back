@@ -73,6 +73,9 @@ def perfil_produtor(
 
         "nome": produtor.nome,
 
+        # Conta excluída: o perfil mostra a etiqueta "Conta excluída"
+        "conta_excluida": bool(produtor.conta_excluida),
+
         "cidade": produtor.cidade,
 
         "estado": produtor.estado,

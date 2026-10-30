@@ -5,6 +5,7 @@ from sqlalchemy.exc import IntegrityError
 from models.mensagem import Mensagem
 from models.conversa import Conversa
 from models.negociacao import Negociacao
+from models.usuario import nome_para_exibir
 
 from database import SessionLocal
 
@@ -255,7 +256,7 @@ def listar_conversas(
                         in ("finalizado", "cancelado")
                     ),
                     "usuario_id": outro_usuario.id,
-                    "nome": outro_usuario.nome,
+                    "nome": nome_para_exibir(outro_usuario),
                     "tipo": outro_usuario.tipo,
                     "foto_perfil": foto_perfil,
 

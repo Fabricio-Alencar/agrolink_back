@@ -5,6 +5,7 @@ from sqlalchemy.orm import joinedload
 
 from database import SessionLocal
 from models import Usuario, Produto, Negociacao, Avaliacao
+from models.usuario import nome_para_exibir
 from services.cache_service import redis_client
 
 
@@ -197,7 +198,7 @@ def perfil_publico_produtor(produtor_id):
             "avaliacoes": [
                 {
                     **avaliacao_para_json(a),
-                    "avaliador_nome": a.avaliador.nome if a.avaliador else "Estabelecimento"
+                    "avaliador_nome": nome_para_exibir(a.avaliador) if a.avaliador else "Estabelecimento"
                 }
                 for a in avaliacoes
             ],

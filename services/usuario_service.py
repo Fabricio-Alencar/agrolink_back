@@ -4,7 +4,7 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from sqlalchemy import select
 
 from database import SessionLocal
-from models.usuario import Usuario
+from models.usuario import Usuario, TAMANHO_MAXIMO_NOME
 
 # =========================
 # FUNÇÕES AUXILIARES E DE SEGURANÇA
@@ -52,6 +52,9 @@ def criar_usuario(data):
         # 1. Validação de campos obrigatórios
         if not all([nome, email, senha, tipo]):
             raise ValueError("Dados obrigatórios incompletos.")
+
+        if len(nome) > TAMANHO_MAXIMO_NOME:
+            raise ValueError(f"O nome pode ter no máximo {TAMANHO_MAXIMO_NOME} caracteres.")
 
         # 2. Validação de formato de e-mail
         if not validar_email(email):

@@ -199,27 +199,30 @@ def buscar_negociacao_detalhes(
 
         "negociante_estado": (
             parceiro.estado
-            if parceiro
+            if parceiro and not parceiro.conta_excluida
             else "N/A"
         ),
 
         "negociante_cidade": (
             parceiro.cidade
-            if parceiro
+            if parceiro and not parceiro.conta_excluida
             else "N/A"
         ),
 
         "negociante_telefone": (
             parceiro.telefone
-            if parceiro
+            if parceiro and not parceiro.conta_excluida
             else "N/A"
         ),
 
         "negociante_email": (
             parceiro.email
-            if parceiro
+            if parceiro and not parceiro.conta_excluida
             else "N/A"
-        )
+        ),
+
+        # Conta excluída: o front mostra a etiqueta "Conta excluída"
+        "negociante_conta_excluida": bool(parceiro and parceiro.conta_excluida)
     }
 
 
@@ -301,27 +304,30 @@ def listar_negociacoes(
 
                 "negociante_estado": (
                     parceiro.estado
-                    if parceiro
+                    if parceiro and not parceiro.conta_excluida
                     else "N/A"
                 ),
 
                 "negociante_cidade": (
                     parceiro.cidade
-                    if parceiro
+                    if parceiro and not parceiro.conta_excluida
                     else "N/A"
                 ),
 
                 "negociante_telefone": (
                     parceiro.telefone
-                    if parceiro
+                    if parceiro and not parceiro.conta_excluida
                     else "N/A"
                 ),
 
                 "negociante_email": (
                     parceiro.email
-                    if parceiro
+                    if parceiro and not parceiro.conta_excluida
                     else "N/A"
                 ),
+
+                # Conta excluída: o front mostra a etiqueta "Conta excluída"
+                "negociante_conta_excluida": bool(parceiro and parceiro.conta_excluida)
             }
 
             lista_final.append(
