@@ -45,7 +45,8 @@ def get_current_user(
                 int(user_id)
             )
 
-            if not usuario:
+            # Conta excluída não pode mais usar o sistema
+            if not usuario or getattr(usuario, "conta_excluida", False) is True:
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="Usuário não encontrado"

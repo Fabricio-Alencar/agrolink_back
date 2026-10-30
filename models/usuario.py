@@ -1,7 +1,12 @@
-from sqlalchemy import Column, Integer, String, Float
+from sqlalchemy import Column, Integer, String, Float, Boolean
 from sqlalchemy.orm import relationship
 
 from database import Base  # importa a classe base do SQLAlchemy
+
+
+# Limite do nome do produtor/estabelecimento (cadastro e perfil),
+# para o nome não quebrar o layout dos cards
+TAMANHO_MAXIMO_NOME = 22
 
 
 class Usuario(Base):
@@ -21,6 +26,10 @@ class Usuario(Base):
         String(255),
         default='static/uploads/perfis/user.webp'
     )
+
+    # A conta não é apagada do banco: fica marcada como excluída para que
+    # os pedidos antigos continuem no histórico da outra pessoa
+    conta_excluida = Column(Boolean, default=False)
 
     # =========================
     # RELACIONAMENTOS
@@ -62,3 +71,12 @@ class Usuario(Base):
     # - foreign_keys='Negociacao.vendedor_id' define qual campo da tabela Negociacao
     #   será usado nessa relação (necessário porque existem duas referências para Usuario:
     #   comprador_id e vendedor_id)
+
+
+def nome_para_exibir(usuario):
+    """Nome mostrado para os outros usuários (chat e avaliações).
+    Conta excluída continua com o nome, mais o aviso "(conta excluída)"."""
+    if getattr(usuario, "conta_excluida", False) is True:
+        return f"{usuario.nome} (conta excluída)"
+
+    return usuario.nome

@@ -85,8 +85,13 @@ def registrar_pedido(comprador_id, data):
     try:
         produto = db.get(Produto, data['produto_id'])
 
-        if not produto:
+        # Produto de conta excluída não aceita pedidos novos
+        if not produto or getattr(produto, "status", None) == "excluido":
             raise Exception("Produto não encontrado.")
+
+        # Produtor não pode fazer pedido do próprio produto
+        if produto.produtor_id == comprador_id:
+            raise Exception("Você não pode fazer pedido do seu próprio produto.")
 
         try:
             data_formatada = datetime.strptime(data['data_entrega'], '%Y-%m-%d').date()

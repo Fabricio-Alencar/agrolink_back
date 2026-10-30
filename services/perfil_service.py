@@ -1,9 +1,12 @@
 from uuid import uuid4
 
+from sqlalchemy import or_, func
 from werkzeug.security import generate_password_hash
 
 from database import SessionLocal
-from models.usuario import Usuario
+from models.usuario import Usuario, TAMANHO_MAXIMO_NOME
+from models.produto import Produto
+from models.negociacao import Negociacao
 
 from services.azure_storage_service import (
     upload_arquivo,
@@ -12,6 +15,10 @@ from services.azure_storage_service import (
 )
 
 from services.cache_service import redis_client
+
+
+# Pedidos nesses status não impedem a exclusão da conta
+STATUS_ENCERRADOS = ("cancelado", "recusado", "finalizado")
 
 
 def obter_perfil_usuario(user_id):
@@ -37,6 +44,11 @@ def atualizar_perfil_usuario(user_id, data, arquivo_foto):
 
         if not usuario:
             raise Exception("Usuário não encontrado.")
+
+        novo_nome = (data.get("nome") or "").strip()
+
+        if len(novo_nome) > TAMANHO_MAXIMO_NOME:
+            raise Exception(f"O nome pode ter no máximo {TAMANHO_MAXIMO_NOME} caracteres.")
 
         foto_antiga = usuario.foto_perfil
 
@@ -140,6 +152,24 @@ def excluir_conta_usuario(user_id):
         if not usuario:
             raise Exception("Usuário não encontrado.")
 
+        # Só pode excluir se nenhum pedido (comprando ou vendendo) estiver em andamento
+        pedidos_em_andamento = db.query(Negociacao).filter(
+            or_(
+                Negociacao.comprador_id == usuario.id,
+                Negociacao.vendedor_id == usuario.id
+            ),
+            func.lower(func.coalesce(Negociacao.status, "pendente")).notin_(
+                STATUS_ENCERRADOS
+            )
+        ).count()
+
+        if pedidos_em_andamento:
+            raise Exception(
+                f"Você ainda tem {pedidos_em_andamento} "
+                f"{'pedido' if pedidos_em_andamento == 1 else 'pedidos'} em andamento "
+                "(pendente, aceito ou entregue). Finalize ou cancele antes de excluir a conta."
+            )
+
         foto_perfil = usuario.foto_perfil
 
         # Excluir a foto de perfil do Azure, se houver
@@ -168,7 +198,23 @@ def excluir_conta_usuario(user_id):
         try:
             tipo_usuario = usuario.tipo
 
-            db.delete(usuario)
+            # A conta não é apagada: os pedidos antigos continuam no histórico
+            # da outra pessoa, com o nome e o aviso "conta excluída".
+            # Fica guardado só o nome e o tipo; o resto é apagado.
+            # E-mail e senha não podem ficar vazios no banco, então viram
+            # valores aleatórios (ninguém consegue entrar e o e-mail fica livre).
+            usuario.conta_excluida = True
+            usuario.email = f"excluido_{usuario.id}_{uuid4().hex[:8]}@conta-excluida.invalid"
+            usuario.senha = generate_password_hash(uuid4().hex)
+            usuario.telefone = None
+            usuario.cidade = None
+            usuario.estado = None
+            usuario.foto_perfil = "user.webp"
+
+            # Produtos saem do marketplace, mas continuam ligados aos pedidos antigos
+            for produto in db.query(Produto).filter(Produto.produtor_id == usuario.id):
+                produto.status = "excluido"
+
             db.commit()
 
             # Invalidar o cache do Marketplace se o usuário excluído for produtor
