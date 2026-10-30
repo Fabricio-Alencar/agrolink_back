@@ -1,4 +1,3 @@
-
 from sqlalchemy.orm import Session
 from sqlalchemy.exc import IntegrityError
 
@@ -15,21 +14,14 @@ from services.azure_storage_service import gerar_url_sas
 # BUSCAR NEGOCIAÇÃO
 # =========================================================
 
-def buscar_negociacao(
-    negociacao_id: int
-):
-
+def buscar_negociacao(negociacao_id: int):
     db = SessionLocal()
-
     try:
-
         return db.get(
             Negociacao,
             negociacao_id
         )
-
     finally:
-
         db.close()
 
 
@@ -37,11 +29,7 @@ def buscar_negociacao(
 # VERIFICAR ACESSO À NEGOCIAÇÃO
 # =========================================================
 
-def usuario_tem_acesso(
-    negociacao,
-    usuario_id: int
-):
-
+def usuario_tem_acesso(negociacao, usuario_id: int):
     if not negociacao:
         return False
 
@@ -56,11 +44,7 @@ def usuario_tem_acesso(
 # BUSCAR CONVERSA INICIADA
 # =========================================================
 
-def buscar_conversa(
-    db_chat: Session,
-    negociacao_id: int
-):
-
+def buscar_conversa(db_chat: Session, negociacao_id: int):
     return (
         db_chat.query(Conversa)
         .filter(
@@ -74,49 +58,33 @@ def buscar_conversa(
 # INICIAR CONVERSA
 # =========================================================
 
-def iniciar_conversa(
-    db_chat: Session,
-    negociacao_id: int,
-    usuario_id: int
-):
-
+def iniciar_conversa(db_chat: Session, negociacao_id: int, usuario_id: int):
     # ==========================================
     # VERIFICA SE A CONVERSA JÁ EXISTE
     # ==========================================
 
-    conversa = buscar_conversa(
-        db_chat,
-        negociacao_id
-    )
-
+    conversa = buscar_conversa(db_chat,negociacao_id)
     if conversa:
         return conversa
-
 
     # ==========================================
     # CRIA O REGISTRO DA CONVERSA
     # ==========================================
 
-    conversa = Conversa(
-        negociacao_id=negociacao_id,
-        iniciada_por_id=usuario_id
-    )
+    conversa = Conversa(negociacao_id=negociacao_id,iniciada_por_id=usuario_id)
 
     db_chat.add(conversa)
 
     try:
-
         db_chat.commit()
-
         db_chat.refresh(conversa)
-
         return conversa
 
+    #Violação de alguma regra do banco (Uma negociação só pode ter um chat)
     except IntegrityError:
-
         # ======================================
         # OUTRA REQUISIÇÃO PODE TER CRIADO
-        # A CONVERSA AO MESMO TEMPO
+        # A CONVERSA AO MESMO TEMPO (produtor e comprador criou uma conversa da mesma negociação ao mesmo tempo)
         # ======================================
 
         db_chat.rollback()
@@ -128,7 +96,7 @@ def iniciar_conversa(
 
         if conversa:
             return conversa
-
+        # Se não encontrar a conversa, propaga o erro original.
         raise
 
 
@@ -136,15 +104,10 @@ def iniciar_conversa(
 # LISTAR CONVERSAS INICIADAS
 # =========================================================
 
-def listar_conversas(
-    usuario_id: int,
-    db_chat: Session
-):
-
+def listar_conversas(usuario_id: int, db_chat: Session):
     db = SessionLocal()
 
     try:
-
         # ==========================================
         # BUSCA SOMENTE CONVERSAS INICIADAS
         # ==========================================
@@ -159,13 +122,11 @@ def listar_conversas(
 
         conversas = []
 
-
         # ==========================================
         # PROCESSA CADA CONVERSA
         # ==========================================
 
         for conversa in conversas_iniciadas:
-
             negociacao = db.get(
                 Negociacao,
                 conversa.negociacao_id
@@ -173,7 +134,6 @@ def listar_conversas(
 
             if not negociacao:
                 continue
-
 
             # ======================================
             # CONFERE SE O USUÁRIO PARTICIPA
@@ -186,7 +146,6 @@ def listar_conversas(
             ):
                 continue
 
-
             # ======================================
             # BUSCA A ÚLTIMA MENSAGEM
             # ======================================
@@ -195,7 +154,6 @@ def listar_conversas(
                 db_chat,
                 negociacao.id
             )
-
 
             # ======================================
             # CONTA MENSAGENS NÃO LIDAS
@@ -207,23 +165,17 @@ def listar_conversas(
                 usuario_id
             )
 
-
             # ======================================
             # IDENTIFICA O OUTRO PARTICIPANTE
             # ======================================
 
             if negociacao.comprador_id == usuario_id:
-
                 outro_usuario = negociacao.vendedor
-
             else:
-
                 outro_usuario = negociacao.comprador
-
 
             if not outro_usuario:
                 continue
-
 
             # ======================================
             # DADOS DA CONVERSA
@@ -244,7 +196,6 @@ def listar_conversas(
                 else conversa.data_criacao
             )
 
-
             conversas.append(
                 {
                     "conversa_id": conversa.id,
@@ -258,8 +209,6 @@ def listar_conversas(
                     "nome": outro_usuario.nome,
                     "tipo": outro_usuario.tipo,
                     "foto_perfil": foto_perfil,
-
-
                     "produto": (
                         negociacao.produto.nome
                         if negociacao.produto
@@ -273,26 +222,21 @@ def listar_conversas(
                         if ultima_mensagem
                         else None
                     ),
-
                     "data_ultima_mensagem": (
                         ultima_mensagem.data_envio
                         if ultima_mensagem
                         else None
                     ),
-
                     "data_criacao": conversa.data_criacao,
-
                     "tem_mensagens": (
                         ultima_mensagem is not None
                     ),
-
                     "mensagens_nao_lidas": mensagens_nao_lidas,
 
                     # Campo interno utilizado na ordenação.
                     "_data_ordenacao": data_ordenacao
                 }
             )
-
 
         # ==========================================
         # ORDENA PELA ATIVIDADE MAIS RECENTE
@@ -303,7 +247,6 @@ def listar_conversas(
             reverse=True
         )
 
-
         # ==========================================
         # REMOVE CAMPO INTERNO
         # ==========================================
@@ -311,11 +254,9 @@ def listar_conversas(
         for conversa in conversas:
             conversa.pop("_data_ordenacao")
 
-
         return conversas
 
     finally:
-
         db.close()
 
 
@@ -323,13 +264,7 @@ def listar_conversas(
 # CRIAR MENSAGEM
 # =========================================================
 
-def criar_mensagem(
-    db: Session,
-    negociacao_id: int,
-    remetente_id: int,
-    texto: str
-):
-
+def criar_mensagem(db: Session, negociacao_id: int, remetente_id: int, texto: str):
     mensagem = Mensagem(
         negociacao_id=negociacao_id,
         remetente_id=remetente_id,
@@ -337,9 +272,7 @@ def criar_mensagem(
     )
 
     db.add(mensagem)
-
     db.commit()
-
     db.refresh(mensagem)
 
     return mensagem
@@ -349,11 +282,7 @@ def criar_mensagem(
 # BUSCAR MENSAGENS
 # =========================================================
 
-def buscar_mensagens(
-    db: Session,
-    negociacao_id: int
-):
-
+def buscar_mensagens(db: Session, negociacao_id: int):
     return (
         db.query(Mensagem)
         .filter(
@@ -370,12 +299,7 @@ def buscar_mensagens(
 # MARCAR MENSAGENS COMO LIDAS
 # =========================================================
 
-def marcar_mensagens_como_lidas(
-    db: Session,
-    negociacao_id: int,
-    usuario_id: int
-):
-
+def marcar_mensagens_como_lidas(db: Session, negociacao_id: int, usuario_id: int):
     mensagens = (
         db.query(Mensagem)
         .filter(
@@ -398,11 +322,7 @@ def marcar_mensagens_como_lidas(
 # BUSCAR ÚLTIMA MENSAGEM
 # =========================================================
 
-def buscar_ultima_mensagem(
-    db: Session,
-    negociacao_id: int
-):
-
+def buscar_ultima_mensagem(db: Session, negociacao_id: int):
     return (
         db.query(Mensagem)
         .filter(
@@ -419,12 +339,7 @@ def buscar_ultima_mensagem(
 # CONTAR MENSAGENS NÃO LIDAS
 # =========================================================
 
-def contar_mensagens_nao_lidas(
-    db: Session,
-    negociacao_id: int,
-    usuario_id: int
-):
-
+def contar_mensagens_nao_lidas(db: Session, negociacao_id: int, usuario_id: int):
     return (
         db.query(Mensagem)
         .filter(
