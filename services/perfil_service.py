@@ -41,11 +41,21 @@ def atualizar_perfil_usuario(user_id, data, arquivo_foto):
         foto_antiga = usuario.foto_perfil
 
         # Atualizar os dados gerais do usuário
-        usuario.nome = data.get("nome", usuario.nome)
-        usuario.email = data.get("email", usuario.email)
-        usuario.telefone = data.get("telefone", usuario.telefone)
-        usuario.cidade = data.get("cidade", usuario.cidade)
-        usuario.estado = data.get("estado", usuario.estado)
+        # Atualizar somente os campos que foram informados
+        if data.get("nome") is not None:
+            usuario.nome = data["nome"]
+
+        if data.get("email") is not None:
+            usuario.email = data["email"]
+
+        if data.get("telefone") is not None:
+            usuario.telefone = data["telefone"]
+
+        if data.get("cidade") is not None:
+            usuario.cidade = data["cidade"]
+
+        if data.get("estado") is not None:
+            usuario.estado = data["estado"]
 
         # Atualizar a senha, caso tenha sido informada
         nova_senha = data.get("senha")

@@ -9,6 +9,7 @@ os.environ["REDIS_HOST"] = "localhost"
 os.environ["REDIS_PASSWORD"] = "senha-ficticia-testes"
 import pytest
 
+from fastapi.testclient import TestClient
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -20,6 +21,8 @@ from models.negociacao import Negociacao
 
 import services.usuario_service as usuario_service
 import auth.dependencies as auth_dependencies
+import services.perfil_service as perfil_service
+import services.avaliacoes_service as avaliacoes_service
 
 import services.produto_service as produto_service
 produto_service.upload_arquivo = lambda *args, **kwargs: None
@@ -63,8 +66,49 @@ def banco_teste(monkeypatch):
         TestSessionLocal
     )
 
+    monkeypatch.setattr(
+        perfil_service,
+        "SessionLocal",
+        TestSessionLocal
+    )
+
+    monkeypatch.setattr(
+        avaliacoes_service,
+        "SessionLocal",
+        TestSessionLocal
+    )
+
+    perfil_service.upload_arquivo = lambda *args, **kwargs: None
+    perfil_service.deletar_arquivo = lambda *args, **kwargs: None
+
+    perfil_service.redis_client = RedisFake()
+    avaliacoes_service.redis_client = RedisFake()
+
     yield TestSessionLocal
 
 
     Base.metadata.drop_all(bind=engine_teste)
     engine_teste.dispose()
+
+    from fastapi.testclient import TestClient
+
+
+@pytest.fixture
+def cliente_api(banco_teste, monkeypatch):
+
+    from main import app
+    import routes.perfil_routes as perfil_routes
+
+    TestSessionLocal = banco_teste
+
+    monkeypatch.setattr(
+        perfil_routes,
+        "SessionLocal",
+        TestSessionLocal
+    )
+
+    with TestClient(
+        app,
+        base_url="https://testserver"
+    ) as client:
+        yield client

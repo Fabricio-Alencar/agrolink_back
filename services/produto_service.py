@@ -45,6 +45,10 @@ def criar_produto(data, arquivo_foto):
         if usuario.tipo != 'produtor':
             raise Exception("Apenas produtores podem criar produtos")
 
+        # Validar preço do produto
+        if float(data["preco"]) < 0:
+            raise ValueError("O preço do produto não pode ser negativo")
+
         nome_blob = None
 
         if arquivo_foto:
@@ -71,7 +75,6 @@ def criar_produto(data, arquivo_foto):
                 descricao=data.get('descricao'),
                 foto=caminho_foto_banco
             )
-
             db.add(produto)
             db.commit()
             db.refresh(produto)
@@ -170,14 +173,27 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
 
         foto_antiga = produto.foto
 
-        produto.nome = data.get('nome', produto.nome)
-        produto.preco = data.get('preco', produto.preco)
-        produto.quantidade = data.get('quantidade', produto.quantidade)
-        produto.unidade = data.get('unidade', produto.unidade)
-        produto.categoria = data.get('categoria', produto.categoria)
-        produto.descricao = data.get('descricao', produto.descricao)
-        produto.status = data.get('status', produto.status)
+        # Atualiza somente os campos que foram informados
+        if data.get('nome') is not None:
+            produto.nome = data["nome"]
 
+        if data.get('preco') is not None:
+            produto.preco = data["preco"]
+
+        if data.get('quantidade') is not None:
+            produto.quantidade = data["quantidade"]
+
+        if data.get('unidade') is not None:
+            produto.unidade = data["unidade"]
+
+        if data.get('categoria') is not None:
+            produto.categoria = data["categoria"]
+
+        if data.get('descricao') is not None:
+            produto.descricao = data["descricao"]
+
+        if data.get('status') is not None:
+            produto.status = data["status"]
         novo_nome_blob = None
 
         if arquivo_foto:
