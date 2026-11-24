@@ -44,24 +44,54 @@ from routes.avaliacoes_routes import router as avaliacoes_router
 
 app = FastAPI(title="AgroLink API")
 
+
 # ==========================================
 # CRIAÇÃO DAS TABELAS
 # ==========================================
 
 try:
-    # Cria todas as tabelas dos modelos principais.
-    # Inclui usuarios, produtos, negociacoes, avaliacoes etc.
+    inspetor = inspect(engine)
+
+    # Tabelas existentes antes da inicialização
+    tabelas_antes = set(inspetor.get_table_names())
+
+    print("\n========== BANCO DE DADOS AGROLINK ==========")
+
+    # Criação das tabelas principais
     Base.metadata.create_all(bind=engine)
 
-    print("[OK] Tabelas principais verificadas/criadas.")
-
-    # Cria as tabelas do sistema de chat.
+    # Criação das tabelas do chat
     ChatBase.metadata.create_all(bind=engine)
 
-    print("[OK] Tabelas do chat verificadas/criadas.")
+    # Tabelas existentes após a criação
+    inspetor = inspect(engine)
+    tabelas_depois = set(inspetor.get_table_names())
+
+    # Identifica tabelas criadas e já existentes
+    tabelas_criadas = tabelas_depois - tabelas_antes
+    tabelas_existentes = tabelas_depois & tabelas_antes
+
+    print("\n--- TABELAS PRINCIPAIS E DO CHAT ---")
+
+    if tabelas_criadas:
+        for tabela in sorted(tabelas_criadas):
+            print(f"[CRIADA] {tabela}")
+    else:
+        print("[INFO] Nenhuma tabela nova foi criada.")
+
+    if tabelas_existentes:
+        for tabela in sorted(tabelas_existentes):
+            print(f"[EXISTENTE] {tabela}")
+
+    print("\n--- RESUMO ---")
+    print(f"Total de tabelas: {len(tabelas_depois)}")
+    print(f"Tabelas criadas: {len(tabelas_criadas)}")
+    print(f"Tabelas que já existiam: {len(tabelas_existentes)}")
+
+    print("============================================\n")
 
 except Exception as e:
-    print(f"[ERRO] Falha ao criar as tabelas: {e}")
+    print(f"[ERRO] Falha ao criar/verificar as tabelas: {e}")
     raise
 
 # ==========================================
@@ -103,9 +133,7 @@ origins = [
     "http://127.0.0.1:5500",
     "http://localhost:8000",
     "http://127.0.0.1:8000",
-
-    # Adicione aqui as quatro URLs do Azure
-    # que você já utilizava na configuração anterior.
+    "https://agrol1nk-f6emc9brhkhseuds.brazilsouth-01.azurewebsites.net",
 ]
 
 app.add_middleware(
