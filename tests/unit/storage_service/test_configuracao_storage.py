@@ -6,6 +6,10 @@ import sys
 
 def test_erro_quando_connection_string_nao_definida():
     ambiente = os.environ.copy()
+
+    # Impede o carregamento do arquivo .env
+    ambiente["PYTHON_DOTENV_DISABLED"] = "1"
+
     ambiente.pop("AZURE_STORAGE_CONNECTION_STRING", None)
 
     codigo = """

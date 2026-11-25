@@ -2,6 +2,34 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from sqlalchemy import inspect, text
+
+# ==========================================
+# IMPORTAÇÃO DO BANCO DE DADOS
+# ==========================================
+
+from database import Base, engine
+from chat_database import ChatBase
+
+# ==========================================
+# IMPORTAÇÃO DOS MODELOS PRINCIPAIS
+# ==========================================
+from models.usuario import Usuario
+from models.produto import Produto
+from models.negociacao import Negociacao
+from models.avaliacao import Avaliacao
+
+# ==========================================
+# IMPORTAÇÃO DOS MODELOS DO CHAT
+# ==========================================
+
+from models.mensagem import Mensagem
+from models.conversa import Conversa
+
+# ==========================================
+# IMPORTAÇÃO DAS ROTAS
+# ==========================================
+
 from routes.auth_routes import router as auth_router
 from routes.perfil_routes import router as perfil_router
 from routes.produtos_routes import router as produtos_router
@@ -10,81 +38,115 @@ from routes.negociacoes_routes import router as negociacoes_router
 from routes.chat_routes import router as chat_router
 from routes.avaliacoes_routes import router as avaliacoes_router
 
-from sqlalchemy import inspect, text
-
-from database import engine
-
-from chat_database import ChatBase
-from models.mensagem import Mensagem
-from models.conversa import Conversa
-from models.avaliacao import Avaliacao
-
+# ==========================================
+# CRIAÇÃO DA APLICAÇÃO
+# ==========================================
 
 app = FastAPI(title="AgroLink API")
 
 
-# =========================
-# BANCO DO CHAT
-# =========================
-
-ChatBase.metadata.create_all(bind=engine)
-
-
-# =========================
-# TABELA DE AVALIAÇÕES
-# =========================
-# Cria só a tabela nova, se ainda não existir (não mexe nas outras)
-
-Avaliacao.__table__.create(bind=engine, checkfirst=True)
-
-
-# =========================
-# COLUNA negociacoes.data_atualizacao
-# =========================
-# O projeto não usa migrations: se a coluna ainda não existir no banco,
-# ela é adicionada aqui (só acrescenta, não apaga nada)
+# ==========================================
+# CRIAÇÃO DAS TABELAS
+# ==========================================
 
 try:
-    if "data_atualizacao" not in [
-        coluna["name"] for coluna in inspect(engine).get_columns("negociacoes")
-    ]:
-        # IF NOT EXISTS (Postgres) evita erro se dois processos subirem juntos
-        se_nao_existir = "IF NOT EXISTS " if engine.dialect.name == "postgresql" else ""
+    inspetor = inspect(engine)
 
-        with engine.begin() as conexao:
-            conexao.execute(text(
-                f"ALTER TABLE negociacoes ADD COLUMN {se_nao_existir}data_atualizacao TIMESTAMP"
-            ))
+    # Tabelas existentes antes da inicialização
+    tabelas_antes = set(inspetor.get_table_names())
 
-        print("Coluna negociacoes.data_atualizacao criada.")
+    print("\n========== BANCO DE DADOS AGROLINK ==========")
+
+    # Criação das tabelas principais
+    Base.metadata.create_all(bind=engine)
+
+    # Criação das tabelas do chat
+    ChatBase.metadata.create_all(bind=engine)
+
+    # Tabelas existentes após a criação
+    inspetor = inspect(engine)
+    tabelas_depois = set(inspetor.get_table_names())
+
+    # Identifica tabelas criadas e já existentes
+    tabelas_criadas = tabelas_depois - tabelas_antes
+    tabelas_existentes = tabelas_depois & tabelas_antes
+
+    print("\n--- TABELAS PRINCIPAIS E DO CHAT ---")
+
+    if tabelas_criadas:
+        for tabela in sorted(tabelas_criadas):
+            print(f"[CRIADA] {tabela}")
+    else:
+        print("[INFO] Nenhuma tabela nova foi criada.")
+
+    if tabelas_existentes:
+        for tabela in sorted(tabelas_existentes):
+            print(f"[EXISTENTE] {tabela}")
+
+    print("\n--- RESUMO ---")
+    print(f"Total de tabelas: {len(tabelas_depois)}")
+    print(f"Tabelas criadas: {len(tabelas_criadas)}")
+    print(f"Tabelas que já existiam: {len(tabelas_existentes)}")
+
+    print("============================================\n")
 
 except Exception as e:
-    print(f"[AVISO] Não foi possível criar negociacoes.data_atualizacao: {e}")
+    print(f"[ERRO] Falha ao criar/verificar as tabelas: {e}")
+    raise
 
+# ==========================================
+# ATUALIZAÇÃO DA TABELA NEGOCIACOES
+# ==========================================
 
-# =========================
+try:
+    colunas = [
+        coluna["name"]
+        for coluna in inspect(engine).get_columns("negociacoes")
+    ]
+
+    if "data_atualizacao" not in colunas:
+        with engine.begin() as conexao:
+            conexao.execute(
+                text(
+                    "ALTER TABLE negociacoes "
+                    "ADD COLUMN data_atualizacao TIMESTAMP"
+                )
+            )
+
+        print("[OK] Coluna negociacoes.data_atualizacao criada.")
+
+    else:
+        print("[OK] Coluna negociacoes.data_atualizacao já existe.")
+
+except Exception as e:
+    print(
+        f"[AVISO] Não foi possível verificar/criar "
+        f"negociacoes.data_atualizacao: {e}"
+    )
+
+# ==========================================
 # CONFIGURAÇÃO DO CORS
-# =========================
+# ==========================================
+
+origins = [
+    "http://localhost:5500",
+    "http://127.0.0.1:5500",
+    "http://localhost:8000",
+    "http://127.0.0.1:8000",
+    "https://agrol1nk-f6emc9brhkhseuds.brazilsouth-01.azurewebsites.net",
+]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=[
-        "http://127.0.0.1:5500",
-        "http://127.0.0.1:8000",
-        "https://front-agrolink-aff0bvbqd2buhfax.eastus-01.azurewebsites.net",
-        "https://back-agrolink-bmbkepbbdkabdhhd.eastus-01.azurewebsites.net",
-        "https://agro-link.azurewebsites.net",
-        "https://agrolink-h3h0amghctcne7ey.brazilsouth-01.azurewebsites.net",
-    ],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-
-# =========================
-# ROTAS
-# =========================
+# ==========================================
+# REGISTRO DAS ROTAS
+# ==========================================
 
 app.include_router(auth_router)
 app.include_router(perfil_router)
@@ -94,10 +156,10 @@ app.include_router(negociacoes_router)
 app.include_router(chat_router)
 app.include_router(avaliacoes_router)
 
+# ==========================================
+# ROTA INICIAL
+# ==========================================
 
 @app.get("/")
-def root():
-
-    return {
-        "message": "AgroLink API funcionando!"
-    }
+def home():
+    return {"message": "AgroLink API funcionando!"}

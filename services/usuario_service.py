@@ -1,3 +1,4 @@
+
 import re
 import logging
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -5,6 +6,7 @@ from sqlalchemy import select
 
 from database import SessionLocal
 from models.usuario import Usuario
+
 
 # =========================
 # FUNÇÕES AUXILIARES E DE SEGURANÇA
@@ -16,16 +18,27 @@ def sanitizar_input(valor):
         return valor.strip()
     return valor
 
+
 def validar_email(email):
     """Valida o formato do e-mail usando Regex."""
-    if not email:
+    if not isinstance(email, str) or not email:
         return False
-    padrao = r"^[\w\.-]+@[\w\.-]+\.\w+$"
+
+    padrao = (
+        r"^[A-Za-z0-9_%+-]+(?:\.[A-Za-z0-9_%+-]+)*"
+        r"@"
+        r"[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?"
+        r"(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?)*"
+        r"\.[A-Za-z]{2,}$"
+    )
+
     return re.match(padrao, email) is not None
+
 
 def hash_senha(senha):
     """Gera um hash seguro da senha usando pbkdf2:sha256 por padrão."""
     return generate_password_hash(senha)
+
 
 def verificar_senha(senha_hash, senha_texto):
     """Compara o hash salvo no banco com a senha fornecida."""
@@ -57,8 +70,14 @@ def criar_usuario(data):
         if not validar_email(email):
             raise ValueError("Formato de e-mail inválido.")
 
-        # 3. Prevenção contra duplicidade de e-mail
-        # O uso do SQLAlchemy ORM (.filter_by) protege contra SQL Injection
+        # 3. Validação do tipo de usuário
+        tipos_permitidos = ["produtor", "estabelecimento", "comprador"]
+
+        if tipo not in tipos_permitidos:
+            raise ValueError("Tipo de usuário inválido.")
+
+        # 4. Prevenção contra duplicidade de e-mail
+        # O uso do SQLAlchemy ORM (.where) protege contra SQL Injection
         resultado = db.execute(
             select(Usuario).where(Usuario.email == email)
         )
@@ -66,10 +85,10 @@ def criar_usuario(data):
         if resultado.scalar_one_or_none():
             raise ValueError("Não foi possível realizar o cadastro. Dados inválidos")
 
-        # 4. Geração do Hash da Senha
+        # 5. Geração do Hash da Senha
         senha_hash = hash_senha(senha)
 
-        # 5. Criação do Objeto Usuário
+        # 6. Criação do Objeto Usuário
         usuario = Usuario(
             nome=nome,
             email=email,
@@ -154,4 +173,3 @@ def login_usuario(data):
 
     finally:
         db.close()
-      

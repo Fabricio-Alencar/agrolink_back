@@ -172,3 +172,48 @@ def test_criar_produto_remove_foto_azure_se_banco_falhar(banco_mock, monkeypatch
 
     db.rollback.assert_called_once()
     db.close.assert_called_once()
+
+
+@pytest.mark.parametrize(
+    "alteracoes, campo",
+    [
+        ({"preco": -5.0}, "preço negativo"),
+        ({"preco": 0.0}, "preço igual a zero"),
+        ({"quantidade": -10}, "quantidade negativa"),
+        ({"quantidade": 0}, "quantidade igual a zero"),
+    ],
+    ids=[
+        "preco-negativo",
+        "preco-zero",
+        "quantidade-negativa",
+        "quantidade-zero",
+    ]
+)
+def test_criar_produto_com_valores_invalidos(
+    banco_mock,
+    monkeypatch,
+    alteracoes,
+    campo
+):
+    db = banco_mock
+    configurar_produtor(db)
+
+    simular_produto(monkeypatch)
+
+    monkeypatch.setattr(
+        service,
+        "invalidar_cache_marketplace",
+        lambda: None
+    )
+
+    with pytest.raises(ValueError):
+        service.criar_produto(
+            dados_produto(**alteracoes),
+            arquivo_foto=None
+        )
+
+    # O produto inválido não deve ser salvo
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+
+    db.close.assert_called_once()

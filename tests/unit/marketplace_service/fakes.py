@@ -1,4 +1,3 @@
-
 class ProdutoFake:
     def __init__(self, **dados):
         for chave, valor in dados.items():

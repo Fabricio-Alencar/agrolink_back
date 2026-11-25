@@ -28,3 +28,7 @@ numpy==2.4.3
 
 # Cache
 redis
+
+# Testes
+pytest
+pytest-cov

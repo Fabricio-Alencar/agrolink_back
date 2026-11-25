@@ -120,3 +120,84 @@ def test_criar_usuario_com_erro_interno(banco_mock):
 
     db.rollback.assert_called_once()
     db.commit.assert_not_called()
+
+
+
+# ======================================
+# TESTE DE TIPO DE USUÁRIO INVÁLIDO
+# ======================================
+
+def test_criar_usuario_com_tipo_invalido(banco_mock):
+    db, _ = banco_mock
+
+    with pytest.raises(ValueError, match="Tipo de usuário inválido"):
+        service.criar_usuario({
+            "nome": "Fabricio",
+            "email": "fabricio@email.com",
+            "senha": "Senha123!",
+            "tipo": "administrador",
+        })
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+    db.rollback.assert_called_once()
+
+
+# ======================================
+# TESTE DE E-MAIL COM PONTOS CONSECUTIVOS
+# ======================================
+
+def test_criar_usuario_com_email_pontos_consecutivos(banco_mock):
+    db, _ = banco_mock
+
+    with pytest.raises(ValueError, match="Formato de e-mail inválido"):
+        service.criar_usuario({
+            "nome": "Fabricio",
+            "email": "fabricio..alencar@email.com",
+            "senha": "Senha123!",
+            "tipo": "produtor",
+        })
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+    db.rollback.assert_called_once()
+
+
+# ======================================
+# TESTE DE DOMÍNIO DE E-MAIL INVÁLIDO
+# ======================================
+
+def test_criar_usuario_com_dominio_email_invalido(banco_mock):
+    db, _ = banco_mock
+
+    with pytest.raises(ValueError, match="Formato de e-mail inválido"):
+        service.criar_usuario({
+            "nome": "Fabricio",
+            "email": "fabricio@email..com",
+            "senha": "Senha123!",
+            "tipo": "produtor",
+        })
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+    db.rollback.assert_called_once()
+
+
+# ======================================
+# TESTE DE E-MAIL COM TIPO INVÁLIDO
+# ======================================
+
+def test_criar_usuario_com_email_nao_textual(banco_mock):
+    db, _ = banco_mock
+
+    with pytest.raises(ValueError, match="Formato de e-mail inválido"):
+        service.criar_usuario({
+            "nome": "Fabricio",
+            "email": 123,
+            "senha": "Senha123!",
+            "tipo": "produtor",
+        })
+
+    db.add.assert_not_called()
+    db.commit.assert_not_called()
+    db.rollback.assert_called_once()

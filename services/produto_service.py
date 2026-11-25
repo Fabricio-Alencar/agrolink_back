@@ -1,22 +1,44 @@
+
 from uuid import uuid4
 
 from database import SessionLocal
 from models.produto import Produto
 from models.usuario import Usuario
-from services.azure_storage_service import CONTAINER_PRODUTOS, deletar_arquivo, upload_arquivo
+from services.azure_storage_service import (
+    CONTAINER_PRODUTOS,
+    deletar_arquivo,
+    upload_arquivo
+)
 from sqlalchemy import select
 from services.cache_service import invalidar_cache_marketplace
+
+
+def validar_dados_produto(preco, quantidade):
+    """Valida o preço e a quantidade de um produto."""
+
+    if isinstance(preco, bool) or not isinstance(preco, (int, float)):
+        raise ValueError("O preço deve ser um número válido.")
+
+    if preco <= 0:
+        raise ValueError("O preço deve ser maior que zero.")
+
+    if isinstance(quantidade, bool) or not isinstance(quantidade, int):
+        raise ValueError("A quantidade deve ser um número inteiro válido.")
+
+    if quantidade <= 0:
+        raise ValueError("A quantidade deve ser maior que zero.")
 
 
 def listar_produtos_produtor(user_id):
     db = SessionLocal()
     try:
-        resultado = db.execute(select(Produto).where(Produto.produtor_id == user_id))
+        resultado = db.execute(
+            select(Produto).where(Produto.produtor_id == user_id)
+        )
         produtos = resultado.scalars().all()
         return produtos
     finally:
         db.close()
-
 
 
 def criar_produto(data, arquivo_foto):
@@ -30,6 +52,12 @@ def criar_produto(data, arquivo_foto):
 
         if usuario.tipo != "produtor":
             raise Exception("Apenas produtores podem criar produtos")
+
+        # Validar preço e quantidade antes de enviar arquivos ao Azure
+        validar_dados_produto(
+            data.get("preco"),
+            data.get("quantidade")
+        )
 
         nome_blob = None
 
@@ -76,12 +104,14 @@ def criar_produto(data, arquivo_foto):
                 try:
                     deletar_arquivo(nome_blob, CONTAINER_PRODUTOS)
                 except Exception as erro_blob:
-                    print("Não foi possível remover o Blob após erro no banco:",str(erro_blob),)
+                    print(
+                        "Não foi possível remover o Blob após erro no banco:",
+                        str(erro_blob),
+                    )
 
             raise Exception(f"Erro ao salvar no banco: {str(e)}")
 
-        # O produto já foi salvo. Uma falha no cache
-        # não deve desfazer a operação.
+        # Uma falha no cache não deve desfazer a operação.
         invalidar_cache_marketplace()
         return produto
 
@@ -108,7 +138,11 @@ def deletar_produto(produto_id, user_id):
 
         foto_produto = produto.foto
 
-        if foto_produto and foto_produto != "foto_generica.png" and not foto_produto.startswith(("http://", "https://")):
+        if (
+            foto_produto
+            and foto_produto != "foto_generica.png"
+            and not foto_produto.startswith(("http://", "https://"))
+        ):
             try:
                 deletar_arquivo(foto_produto, CONTAINER_PRODUTOS)
                 print(f"Foto do produto {produto_id} removida do Azure.")
@@ -148,11 +182,17 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
         if produto.produtor_id != user_id:
             raise Exception("Você não tem permissão para editar este produto")
 
+        # Validar os valores novos ou manter os valores atuais
+        novo_preco = data.get("preco", produto.preco)
+        nova_quantidade = data.get("quantidade", produto.quantidade)
+
+        validar_dados_produto(novo_preco, nova_quantidade)
+
         foto_antiga = produto.foto
 
         produto.nome = data.get('nome', produto.nome)
-        produto.preco = data.get('preco', produto.preco)
-        produto.quantidade = data.get('quantidade', produto.quantidade)
+        produto.preco = novo_preco
+        produto.quantidade = nova_quantidade
         produto.unidade = data.get('unidade', produto.unidade)
         produto.categoria = data.get('categoria', produto.categoria)
         produto.descricao = data.get('descricao', produto.descricao)
@@ -168,11 +208,19 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
 
             novo_nome_blob = f"{uuid4().hex}{extensao}"
 
-            upload_arquivo(arquivo_foto.file, novo_nome_blob, CONTAINER_PRODUTOS)
+            upload_arquivo(
+                arquivo_foto.file,
+                novo_nome_blob,
+                CONTAINER_PRODUTOS
+            )
 
             produto.foto = novo_nome_blob
 
-            if foto_antiga and foto_antiga != "foto_generica.png" and not foto_antiga.startswith(("http://", "https://")):
+            if (
+                foto_antiga
+                and foto_antiga != "foto_generica.png"
+                and not foto_antiga.startswith(("http://", "https://"))
+            ):
                 try:
                     deletar_arquivo(foto_antiga, CONTAINER_PRODUTOS)
                     print(f"Foto antiga do produto {produto_id} removida do Azure.")
@@ -183,8 +231,6 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
             db.commit()
             db.refresh(produto)
 
-            # Redis separado do banco.
-            # Se falhar, a alteração do produto permanece salva.
             invalidar_cache_marketplace()
 
             print(f"SUCESSO: Produto {produto_id} atualizado.")
@@ -198,7 +244,10 @@ def atualizar_produto(produto_id, user_id, data, arquivo_foto):
                 try:
                     deletar_arquivo(novo_nome_blob, CONTAINER_PRODUTOS)
                 except Exception as erro_blob:
-                    print("Não foi possível remover o novo Blob após erro no banco:", str(erro_blob))
+                    print(
+                        "Não foi possível remover o novo Blob após erro no banco:",
+                        str(erro_blob)
+                    )
 
             raise Exception(f"Erro ao atualizar banco: {str(e)}")
 

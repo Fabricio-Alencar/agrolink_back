@@ -117,3 +117,4 @@ def test_registrar_pedido_erro_no_commit(banco_mock, produto_fake):
 
     banco_mock.rollback.assert_called_once()
     banco_mock.close.assert_called_once()
+
