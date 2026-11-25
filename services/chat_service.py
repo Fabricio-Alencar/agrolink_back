@@ -12,6 +12,89 @@ from services.azure_storage_service import gerar_url_sas
 
 
 # =========================================================
+# IDENTIFICAR OUTRO PARTICIPANTE - FUNÇÃO AUXILIAR
+# =========================================================
+
+def _obter_outro_participante(negociacao, usuario_id: int):
+    if negociacao.comprador_id == usuario_id:
+        return negociacao.vendedor
+
+    return negociacao.comprador
+
+
+# =========================================================
+# OBTER DATA DE ORDENAÇÃO - FUNÇÃO AUXILIAR
+# =========================================================
+
+def _obter_data_ordenacao(ultima_mensagem, conversa):
+    if ultima_mensagem:
+        return ultima_mensagem.data_envio
+
+    return conversa.data_criacao
+
+
+# =========================================================
+# MONTAR DADOS DA CONVERSA - FUNÇÃO AUXILIAR
+# =========================================================
+
+def _montar_dados_conversa(
+    conversa,
+    negociacao,
+    outro_usuario,
+    ultima_mensagem,
+    mensagens_nao_lidas
+):
+    foto_perfil = (
+        gerar_url_sas("usuarios", outro_usuario.foto_perfil)
+        if outro_usuario.foto_perfil
+        else None
+    )
+
+    return {
+        "conversa_id": conversa.id,
+        "negociacao_id": negociacao.id,
+        "status_negociacao": negociacao.status,
+        "arquivada": (
+            str(negociacao.status).lower()
+            in ("finalizado", "cancelado")
+        ),
+        "usuario_id": outro_usuario.id,
+        "nome": outro_usuario.nome,
+        "tipo": outro_usuario.tipo,
+        "foto_perfil": foto_perfil,
+        "produto": (
+            negociacao.produto.nome
+            if negociacao.produto
+            else "Produto"
+        ),
+        "ultima_mensagem": (
+            ultima_mensagem.texto
+            if ultima_mensagem
+            else None
+        ),
+        "data_ultima_mensagem": (
+            ultima_mensagem.data_envio
+            if ultima_mensagem
+            else None
+        ),
+        "data_criacao": conversa.data_criacao,
+        "tem_mensagens": ultima_mensagem is not None,
+        "mensagens_nao_lidas": mensagens_nao_lidas
+    }
+
+# =========================================================
+# CONSULTAR MENSAGENS NÃO LIDAS - FUNÇÃO AUXILIAR
+# =========================================================
+def _consultar_mensagens_nao_lidas(db, negociacao_id, usuario_id):
+    return db.query(Mensagem).filter(
+        Mensagem.negociacao_id == negociacao_id,
+        Mensagem.remetente_id != usuario_id,
+        Mensagem.lida == False
+    )
+
+
+
+# =========================================================
 # BUSCAR NEGOCIAÇÃO
 # =========================================================
 
@@ -93,77 +176,6 @@ def iniciar_conversa(
 
         raise
 
-
-# =========================================================
-# IDENTIFICAR OUTRO PARTICIPANTE
-# =========================================================
-
-def _obter_outro_participante(negociacao, usuario_id: int):
-    if negociacao.comprador_id == usuario_id:
-        return negociacao.vendedor
-
-    return negociacao.comprador
-
-
-# =========================================================
-# OBTER DATA DE ORDENAÇÃO
-# =========================================================
-
-def _obter_data_ordenacao(ultima_mensagem, conversa):
-    if ultima_mensagem:
-        return ultima_mensagem.data_envio
-
-    return conversa.data_criacao
-
-
-# =========================================================
-# MONTAR DADOS DA CONVERSA
-# =========================================================
-
-def _montar_dados_conversa(
-    conversa,
-    negociacao,
-    outro_usuario,
-    ultima_mensagem,
-    mensagens_nao_lidas
-):
-    foto_perfil = (
-        gerar_url_sas("usuarios", outro_usuario.foto_perfil)
-        if outro_usuario.foto_perfil
-        else None
-    )
-
-    return {
-        "conversa_id": conversa.id,
-        "negociacao_id": negociacao.id,
-        "status_negociacao": negociacao.status,
-        "arquivada": (
-            str(negociacao.status).lower()
-            in ("finalizado", "cancelado")
-        ),
-        "usuario_id": outro_usuario.id,
-        "nome": outro_usuario.nome,
-        "tipo": outro_usuario.tipo,
-        "foto_perfil": foto_perfil,
-        "produto": (
-            negociacao.produto.nome
-            if negociacao.produto
-            else "Produto"
-        ),
-        "ultima_mensagem": (
-            ultima_mensagem.texto
-            if ultima_mensagem
-            else None
-        ),
-        "data_ultima_mensagem": (
-            ultima_mensagem.data_envio
-            if ultima_mensagem
-            else None
-        ),
-        "data_criacao": conversa.data_criacao,
-        "tem_mensagens": ultima_mensagem is not None,
-        "mensagens_nao_lidas": mensagens_nao_lidas
-    }
 
 
 # =========================================================
@@ -289,27 +301,26 @@ def buscar_mensagens(db: Session, negociacao_id: int):
 # MARCAR MENSAGENS COMO LIDAS
 # =========================================================
 
-def marcar_mensagens_como_lidas(
-    db: Session,
-    negociacao_id: int,
-    usuario_id: int
-):
-    mensagens = (
-        db.query(Mensagem)
-        .filter(
-            Mensagem.negociacao_id == negociacao_id,
-            Mensagem.remetente_id != usuario_id,
-            Mensagem.lida == False
-        )
-        .all()
-    )
+def marcar_mensagens_como_lidas(db, negociacao_id, usuario_id):
+    mensagens = _consultar_mensagens_nao_lidas(
+        db, negociacao_id, usuario_id
+    ).all()
 
     for mensagem in mensagens:
         mensagem.lida = True
 
     db.commit()
-
     return mensagens
+
+# =========================================================
+# CONTAR MENSAGENS NÃO LIDAS
+# =========================================================
+
+def contar_mensagens_nao_lidas(db, negociacao_id, usuario_id):
+    return _consultar_mensagens_nao_lidas(
+        db, negociacao_id, usuario_id
+    ).count()
+
 
 
 # =========================================================
@@ -329,21 +340,3 @@ def buscar_ultima_mensagem(db: Session, negociacao_id: int):
     )
 
 
-# =========================================================
-# CONTAR MENSAGENS NÃO LIDAS
-# =========================================================
-
-def contar_mensagens_nao_lidas(
-    db: Session,
-    negociacao_id: int,
-    usuario_id: int
-):
-    return (
-        db.query(Mensagem)
-        .filter(
-            Mensagem.negociacao_id == negociacao_id,
-            Mensagem.remetente_id != usuario_id,
-            Mensagem.lida == False
-        )
-        .count()
-    )
