@@ -1,6 +1,7 @@
 from datetime import datetime
 
 from sqlalchemy import select, func
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import joinedload
 
 from database import SessionLocal
@@ -121,7 +122,14 @@ def avaliar_produtor(negociacao_id, user_id, nota, comentario=None):
         ))
         # Avaliar também conta como atualização: o pedido sobe na lista do produtor
         negociacao.data_atualizacao = datetime.utcnow()
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            # Duas avaliações chegaram ao mesmo tempo (ex.: duas abas abertas):
+            # o banco aceita só uma por pedido, a outra recebe a mesma resposta
+            # de "já avaliada" em vez de um erro interno
+            db.rollback()
+            return {"erro": "Esta negociação já foi avaliada"}, 409
 
         # Mantém a coluna usuarios.avaliacao atualizada com a média real
         resumo = resumo_avaliacoes(db, [negociacao.vendedor_id])[negociacao.vendedor_id]
